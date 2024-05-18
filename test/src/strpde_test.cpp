@@ -60,8 +60,9 @@ TEST(strpde_test, laplacian_nonparametric_samplingatnodes_separable_monolithic) 
     DMatrix<double> y = read_csv<double>("../data/models/strpde/2D_test1/y.csv");
     // define regularizing PDE in space   
     auto Ld = -laplacian<FEM>();
-    DMatrix<double> u = DMatrix<double>::Zero(domain.mesh.n_elements() * 3 * time_mesh.n_nodes(), 1);
-    PDE<Mesh<2, 2>, decltype(Ld), DMatrix<double>, FEM, fem_order<1>> space_penalty(domain.mesh, Ld, u);
+    DMatrix<double> u = DMatrix<double>::Zero(domain.mesh.n_elements() * 6 * time_mesh.n_nodes(), 1);
+    PDE<Mesh<2, 2>, decltype(Ld), DMatrix<double>, FEM, fem_order<1>> space_penalty(domain.mesh, Ld);
+    space_penalty.set_forcing(u);
     // define regularizing PDE in time
     auto Lt = -bilaplacian<SPLINE>();
     PDE<Mesh<1, 1>, decltype(Lt), DMatrix<double>, SPLINE, spline_order<3>> time_penalty(time_mesh, Lt);
@@ -99,8 +100,9 @@ TEST(strpde_test, laplacian_semiparametric_samplingatlocations_separable_monolit
     DMatrix<double> X    = read_csv<double>("../data/models/strpde/2D_test2/X.csv");
     // define regularizing PDE in space
     auto Ld = -laplacian<FEM>();
-    DMatrix<double> u = DMatrix<double>::Zero(domain.mesh.n_elements() * 3, 1);
-    PDE<Mesh<2, 2>, decltype(Ld), DMatrix<double>, FEM, fem_order<1>> space_penalty(domain.mesh, Ld, u);
+    DMatrix<double> u = DMatrix<double>::Zero(domain.mesh.n_elements() * 6, 1);
+    PDE<Mesh<2, 2>, decltype(Ld), DMatrix<double>, FEM, fem_order<1>> space_penalty(domain.mesh, Ld);
+    space_penalty.set_forcing(u);
     // define regularizing PDE in time
     auto Lt = -bilaplacian<SPLINE>();
     PDE<Mesh<1, 1>, decltype(Lt), DMatrix<double>, SPLINE, spline_order<3>> time_penalty(time_mesh, Lt);
@@ -149,8 +151,8 @@ TEST(strpde_test, noncostantcoefficientspde_nonparametric_samplingareal_paraboli
     DiscretizedMatrixField<2, 2, 2> K(K_data);
     DiscretizedVectorField<2, 2> b(b_data);
     auto L = dt<FEM>() - diffusion<FEM>(K) + advection<FEM>(b);
-    DMatrix<double> u = DMatrix<double>::Zero(domain.mesh.n_elements() * 3, time_mesh.rows());
-    PDE<decltype(domain.mesh), decltype(L), DMatrix<double>, FEM, fem_order<1>> pde(domain.mesh, time_mesh, L, u);
+    DMatrix<double> u = DMatrix<double>::Zero(domain.mesh.n_elements() * 6, time_mesh.rows());
+    PDE<decltype(domain.mesh), decltype(L), DMatrix<double>, FEM, fem_order<1>> pde(domain.mesh, time_mesh, L); pde.set_forcing(u);
     pde.set_initial_condition(IC);
     // define model
     double lambda_D = std::pow(0.1, 6);
@@ -191,8 +193,8 @@ TEST(strpde_test, laplacian_nonparametric_samplingatnodes_parabolic_iterative) {
     DMatrix<double> IC = read_mtx<double>("../data/models/strpde/2D_test4/IC.mtx");
     // define regularizing PDE
     auto L = dt<FEM>() - laplacian<FEM>();
-    DMatrix<double> u = DMatrix<double>::Zero(domain.mesh.n_elements() * 3, time_mesh.rows());
-    PDE<decltype(domain.mesh), decltype(L), DMatrix<double>, FEM, fem_order<1>> pde(domain.mesh, time_mesh, L, u);
+    DMatrix<double> u = DMatrix<double>::Zero(domain.mesh.n_elements() * 6, time_mesh.rows());
+    PDE<decltype(domain.mesh), decltype(L), DMatrix<double>, FEM, fem_order<1>> pde(domain.mesh, time_mesh, L); pde.set_forcing(u);
     pde.set_initial_condition(IC);
     // define model
     double lambda_D = 1;
@@ -231,8 +233,9 @@ TEST(strpde_test, laplacian_nonparametric_samplingatnodes_timelocations_separabl
     DMatrix<double> y         = read_csv<double>("../data/models/strpde/2D_test5/y.csv");
     // define regularizing PDE in space
     auto Ld = -laplacian<FEM>();
-    DMatrix<double> u = DMatrix<double>::Zero(domain.mesh.n_elements() * 3 * time_mesh.n_nodes(), 1);
-    PDE<Mesh<2, 2>, decltype(Ld), DMatrix<double>, FEM, fem_order<1>> space_penalty(domain.mesh, Ld, u);
+    DMatrix<double> u = DMatrix<double>::Zero(domain.mesh.n_elements() * 6 * time_mesh.n_nodes(), 1);
+    PDE<Mesh<2, 2>, decltype(Ld), DMatrix<double>, FEM, fem_order<1>> space_penalty(domain.mesh, Ld);
+    space_penalty.set_forcing(u);
     // define regularizing PDE in time
     auto Lt = -bilaplacian<SPLINE>();
     PDE<Mesh<1, 1>, decltype(Lt), DMatrix<double>, SPLINE, spline_order<3>> time_penalty(time_mesh, Lt);
@@ -275,8 +278,9 @@ TEST(strpde_test, laplacian_nonparametric_samplingatlocations_timelocations_sepa
     DMatrix<double> y          = read_csv<double>("../data/models/strpde/2D_test6/y.csv"   );
     // define regularizing PDE in space
     auto Ld = -laplacian<FEM>();
-    DMatrix<double> u = DMatrix<double>::Zero(domain.mesh.n_elements() * 3 * time_mesh.n_nodes(), 1);
-    PDE<Mesh<2, 2>, decltype(Ld), DMatrix<double>, FEM, fem_order<1>> space_penalty(domain.mesh, Ld, u);
+    DMatrix<double> u = DMatrix<double>::Zero(domain.mesh.n_elements() * 6 * time_mesh.n_nodes(), 1);
+    PDE<Mesh<2, 2>, decltype(Ld), DMatrix<double>, FEM, fem_order<1>> space_penalty(domain.mesh, Ld);
+    space_penalty.set_forcing(u);
     // define regularizing PDE in time
     auto Lt = -bilaplacian<SPLINE>();
     PDE<Mesh<1, 1>, decltype(Lt), DMatrix<double>, SPLINE, spline_order<3>> time_penalty(time_mesh, Lt);
@@ -315,8 +319,9 @@ TEST(strpde_test, laplacian_nonparametric_samplingatnodes_separable_monolithic_s
     DMatrix<double> y = read_csv<double>("../data/models/strpde/2D_test7/y.csv");
     // define regularizing PDE in space
     auto Ld = -laplacian<FEM>();
-    DMatrix<double> u = DMatrix<double>::Zero(domain.mesh.n_elements() * 3 * time_mesh.n_nodes(), 1);
-    PDE<Mesh<2, 3>, decltype(Ld), DMatrix<double>, FEM, fem_order<1>> space_penalty(domain.mesh, Ld, u);
+    DMatrix<double> u = DMatrix<double>::Zero(domain.mesh.n_elements() * 6 * time_mesh.n_nodes(), 1);
+    PDE<Mesh<2, 3>, decltype(Ld), DMatrix<double>, FEM, fem_order<1>> space_penalty(domain.mesh, Ld);
+    space_penalty.set_forcing(u);
     // define regularizing PDE in time
     auto Lt = -bilaplacian<SPLINE>();
     PDE<Mesh<1, 1>, decltype(Lt), DMatrix<double>, SPLINE, spline_order<3>> time_penalty(time_mesh, Lt);

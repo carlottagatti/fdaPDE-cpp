@@ -23,6 +23,7 @@
 #include "models/regression/fpirls.h"
 #include "models/regression/srpde.h"
 #include "models/regression/strpde.h"
+#include "models/regression/strpde_nonlinear.h"
 #include "models/regression/gsrpde.h"
 #include "models/regression/qsrpde.h"
 #include "models/regression/gcv.h"

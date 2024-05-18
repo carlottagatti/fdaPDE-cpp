@@ -55,12 +55,15 @@ class SRPDE : public RegressionBase<SRPDE, SpaceOnly> {
         if (runtime().query(runtime_status::is_lambda_changed)) {
             // assemble system matrix for nonparameteric part
             A_ = SparseBlockMatrix<double, 2, 2>(
-              -PsiTD() * W() * Psi(), lambda_D() * R1().transpose(),
-	      lambda_D() * R1(),      lambda_D() * R0()            );
+              -PsiTD() * W() * Psi(), lambda_D() * (R1() + R0_robin()).transpose(),
+	      lambda_D() * (R1() + R0_robin()),      lambda_D() * R0()            );
             invA_.compute(A_);
             // prepare rhs of linear system
             b_.resize(A_.rows());
-            b_.block(n_basis(), 0, n_basis(), 1) = lambda_D() * u();
+            b_.block(n_basis(), 0, n_basis(), 1) = lambda_D() * (u() + u_neumann() + u_robin());
+            // std::cout << u_robin() << std::endl;
+            // std::cout << "A.rows() = " << A_.rows() << ", n_basis = " << n_basis() << std::endl;
+            // auto A_step = pde().stiff_step(DVector<double>::Zero(n_basis()));
             return;
         }
         if (runtime().query(runtime_status::require_W_update)) {
@@ -100,8 +103,9 @@ class SRPDE : public RegressionBase<SRPDE, SpaceOnly> {
     // GCV support
     double norm(const DMatrix<double>& op1, const DMatrix<double>& op2) const { return (op1 - op2).squaredNorm(); }
     // getters
-    const SparseBlockMatrix<double, 2, 2>& A() const { return A_; }
+    SparseBlockMatrix<double, 2, 2>& A() { return A_; }
     const fdapde::SparseLU<SpMatrix<double>>& invA() const { return invA_; }
+    DVector<double>& b() { return b_; }
     virtual ~SRPDE() = default;
 };
 

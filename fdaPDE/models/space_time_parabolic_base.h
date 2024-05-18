@@ -34,13 +34,14 @@ class SpaceTimeParabolicBase : public SpaceTimeBase<Model, SpaceTimeParabolic> {
    protected:
     pde_ptr pde_ {};   // parabolic differential penalty df/dt + Lf - u
     // let m the number of time points
-    DMatrix<double> s_;     // N x 1 initial condition vector
-    DMatrix<double> u_;     // discretized forcing [1/DeltaT * (u_1 + R_0*s) \ldots u_n]
-    SpMatrix<double> Im_;   // m x m sparse identity matrix (assembled once and cached for reuse)
-    SpMatrix<double> L_;    // m x m matrix associated with the derivation in time
-    double DeltaT_;         // time step (assumes equidistant points in time)
-    SpMatrix<double> R0_;   // Im \kron R0 (R0: spatial mass matrix)
-    SpMatrix<double> R1_;   // Im \kron R1 (R1: spatial penalty discretization)
+    DMatrix<double> s_;         // N x 1 initial condition vector
+    DMatrix<double> u_;         // discretized forcing [1/DeltaT * (u_1 + R_0*s) \ldots u_n]
+    SpMatrix<double> Im_;       // m x m sparse identity matrix (assembled once and cached for reuse)
+    SpMatrix<double> L_;        // m x m matrix associated with the derivation in time
+    double DeltaT_;             // time step (assumes equidistant points in time)
+    SpMatrix<double> R0_;       // Im \kron R0 (R0: spatial mass matrix)
+    SpMatrix<double> R1_;       // Im \kron R1 (R1: spatial penalty discretization)
+    SpMatrix<double> R0_robin_; // Im \kron R0_robin (R0_robin: boundary mass matrix due to Robin bcs)
 
     SpMatrix<double> penT_;                      // discretization of the time derivative: L \kron R0
     fdapde::SparseLU<SpMatrix<double>> invR0_;   // factorization of Im \kron R0
@@ -84,9 +85,10 @@ class SpaceTimeParabolicBase : public SpaceTimeBase<Model, SpaceTimeParabolic> {
         // compute tensorized matrices
         R0_ = Kronecker(Im_, pde_.mass());
         R1_ = Kronecker(Im_, pde_.stiff());
-	// correct first n rows of discretized force as (u_1 + R0*s/DeltaT)
-	u_ = pde_.force();
-	u_.block(0, 0, model().n_basis(), 1) += (1.0 / DeltaT_) * (pde_.mass() * s_);
+        R0_robin_ = Kronecker(Im_, pde_.mass_robin());
+        // correct first n rows of discretized force as (u_1 + R0*s/DeltaT)
+        u_ = pde_.force();
+        u_.block(0, 0, model().n_basis(), 1) += (1.0 / DeltaT_) * (pde_.mass() * s_);
     }
     // setters
     void set_penalty(const pde_ptr& pde) {
@@ -97,11 +99,15 @@ class SpaceTimeParabolicBase : public SpaceTimeBase<Model, SpaceTimeParabolic> {
     const pde_ptr& pde() const { return pde_; }   // regularizing term df/dt + Lf - u
     const SpMatrix<double>& R0() const { return R0_; }
     const SpMatrix<double>& R1() const { return R1_; }
+    const SpMatrix<double> R1_step(const DVector<double>& f) const { return pde_.stiff_step(f); };   // stiff matrix evaluated in f (usuful when we have a nonlinearity)
     std::size_t n_basis() const { return pde_.n_dofs(); }   // number of basis functions
     std::size_t n_spatial_basis() const { return pde_.n_dofs(); }
     const SpMatrix<double>& L() const { return L_; }
     const DMatrix<double>& u() const { return u_; }   // discretized force corrected by initial conditions
-    const DMatrix<double>& s() { return s_; }         // initial condition
+    const DMatrix<double>& u_neumann() const { return pde_.force_neumann(); }  // discretized neumann
+    const DMatrix<double>& u_robin() const { return pde_.force_robin(); }      // discretized robin force
+    const SpMatrix<double>& R0_robin() const { return R0_robin_; }
+    const DMatrix<double>& s() { return s_; }   // initial condition
     double DeltaT() const { return DeltaT_; }
 
     // computes and cache matrices (Im \kron R0)^{-1} and L \kron R0, returns the discretized penalty P =

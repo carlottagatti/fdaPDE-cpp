@@ -148,13 +148,17 @@ class STRPDE<SpaceTimeParabolic, monolithic> :
         // assemble system matrix for the nonparameteric part of the model
         if (is_empty(L_)) L_ = Kronecker(L(), pde().mass());
         A_ = SparseBlockMatrix<double, 2, 2>(
-          -PsiTD() * W() * Psi(), lambda_D() * (R1() + lambda_T() * L_).transpose(),
-          lambda_D() * (R1() + lambda_T() * L_), lambda_D() * R0());
+          -PsiTD() * W() * Psi(), lambda_D() * (R1() + R0_robin() + lambda_T() * L_).transpose(),
+          lambda_D() * (R1() + R0_robin() + lambda_T() * L_), lambda_D() * R0());
         // cache system matrix for reuse
         invA_.compute(A_);
         // prepare rhs of linear system
         b_.resize(A_.rows());
-        b_.block(A_.rows() / 2, 0, A_.rows() / 2, 1) = lambda_D() * u();
+        b_.block(A_.rows() / 2, 0, A_.rows() / 2, 1) = lambda_D() * (u() + u_neumann() + u_robin());
+        // std::cout << "A.rows() = " << A_.rows() << ", n_basis = " << n_basis() << std::endl;
+        // std::cout << "dimension R1 = " << R1().rows() << " x " << R1().cols() << std::endl;
+        // std::cout << "dimension L = " << L_.rows() << " x " << L_.cols() << std::endl;
+        // std::cout << "dimension robin matrix = " << R0_robin().rows() << " x " << R0_robin().cols() << std::endl;
         return;
     }
     void update_to_weights() {   // update model object in case of changes in the weights matrix
@@ -191,8 +195,9 @@ class STRPDE<SpaceTimeParabolic, monolithic> :
         return;
     }
     // getters
-    const SparseBlockMatrix<double, 2, 2>& A() const { return A_; }
+    SparseBlockMatrix<double, 2, 2>& A() { return A_; }
     const fdapde::SparseLU<SpMatrix<double>>& invA() const { return invA_; }
+    DVector<double>& b() { return b_; }
     double norm(const DMatrix<double>& op1, const DMatrix<double>& op2) const {   // euclidian norm of op1 - op2
         return (op1 - op2).squaredNorm(); // NB: to check, defined just for compiler
     }

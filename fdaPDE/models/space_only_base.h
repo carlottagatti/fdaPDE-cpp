@@ -59,13 +59,16 @@ template <typename Model> class SpaceOnlyBase : public ModelBase<Model> {
     SVector<n_lambda> lambda() const { return lambda_; }
     double lambda_D() const { return lambda_[0]; }
     const SpMatrix<double>& R0() const { return mass_lumping ? R0_lumped_ : pde_.mass(); }   // mass matrix
-    const SpMatrix<double>& R1() const { return pde_.stiff(); }    // discretization of differential operator L
-    const DMatrix<double>& u() const { return pde_.force(); }      // discretization of forcing term u
-    inline std::size_t n_temporal_locs() const { return 1; }       // number of time instants
-    std::size_t n_basis() const { return pde_.n_dofs(); };         // number of basis functions
-    std::size_t n_spatial_basis() const { return n_basis(); }      // number of basis functions in space
-    const pde_ptr& pde() const { return pde_; }                    // regularizing term Lf - u
-    const fdapde::SparseLU<SpMatrix<double>>& invR0() const {      // LU factorization of mass matrix R0
+    const SpMatrix<double>& R1() const { return pde_.stiff(); }                // discretization of differential operator L
+    const DMatrix<double>& u() const { return pde_.force(); }                  // discretization of forcing term u
+    const DMatrix<double>& u_neumann() const { return pde_.force_neumann(); }  // discretization of forcing term u
+    const DMatrix<double>& u_robin() const { return pde_.force_robin(); }      // discretization of forcing term u
+    const SpMatrix<double>& R0_robin() const { return pde_.mass_robin(); }     // buondary mass matrix due to Robin bcs
+    inline std::size_t n_temporal_locs() const { return 1; }                   // number of time instants
+    std::size_t n_basis() const { return pde_.n_dofs(); };                     // number of basis functions
+    std::size_t n_spatial_basis() const { return n_basis(); }                  // number of basis functions in space
+    const pde_ptr& pde() const { return pde_; }                                // regularizing term Lf - u
+    const fdapde::SparseLU<SpMatrix<double>>& invR0() const {                  // LU factorization of mass matrix R0
         if (!invR0_) { invR0_.compute(R0()); }
         return invR0_;
     }
