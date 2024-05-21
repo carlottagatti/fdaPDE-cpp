@@ -227,11 +227,15 @@ class STRPDE<SpaceTimeParabolic, iterative> :
         DVector<double> x = invA_.solve(b_);
         f_new(t) = x.topRows(n_spatial_basis());
         g_new(t) = x.bottomRows(n_spatial_basis());
+        // if (t==0) std::cout << "x(0)" << x(0) << std::endl;
+        // if (t==n_temporal_locs()-1) std::cout << "x(final)" << x(881) << std::endl;
         return;
     }
     // internal utilities
     DMatrix<double> y(std::size_t k) const { return y().block(n_spatial_locs() * k, 0, n_spatial_locs(), 1); }
     DMatrix<double> u(std::size_t k) const { return u_.block(n_basis() * k, 0, n_basis(), 1); }
+    DMatrix<double> u_neumann(std::size_t k) const { return pde().force_neumann().block(n_basis() * k, 0, n_basis(), 1); }
+    DMatrix<double> u_robin(std::size_t k) const { return pde().force_robin().block(n_basis() * k, 0, n_basis(), 1); }
 
     // quantities related to iterative scheme
     double tol_ = 1e-4;           // tolerance used as stopping criterion
@@ -254,7 +258,7 @@ class STRPDE<SpaceTimeParabolic, iterative> :
     void tensorize_psi() { return; } // avoid tensorization of \Psi matrix
     void init_regularization() {
         pde_.init();
-	s_ = pde_.initial_condition();
+	    s_ = pde_.initial_condition();
         // compute time step (assuming equidistant points)
         DeltaT_ = time_[1] - time_[0];
         u_ = pde_.force();   // compute forcing term
@@ -264,6 +268,7 @@ class STRPDE<SpaceTimeParabolic, iterative> :
     // getters
     const SpMatrix<double>& R0() const { return pde_.mass(); }    // mass matrix in space
     const SpMatrix<double>& R1() const { return pde_.stiff(); }   // discretization of differential operator L
+    const SpMatrix<double>& R0_robin() const { return pde_.mass_robin(); }   // mass bpundary matrix due to RObin bcs
     std::size_t n_basis() const { return pde_.n_dofs(); }         // number of basis functions
 
     void init_model() { return; };
@@ -271,8 +276,8 @@ class STRPDE<SpaceTimeParabolic, iterative> :
         fdapde_assert(y().rows() != 0);
         // compute starting point (f^(k,0), g^(k,0)) k = 1 ... m for iterative minimization of functional J(f,g)
         A_ = SparseBlockMatrix<double, 2, 2>(
-          PsiTD() * Psi(),   lambda_D() * R1().transpose(),
-	  lambda_D() * R1(), -lambda_D() * R0()           );
+          PsiTD() * Psi(),   lambda_D() * (R1() + R0_robin()).transpose(),
+	      lambda_D() * (R1() + R0_robin()), -lambda_D() * R0()           );
         // cache system matrix and its factorization
         invA_.compute(A_);
         b_.resize(A_.rows());
@@ -283,7 +288,10 @@ class STRPDE<SpaceTimeParabolic, iterative> :
         for (std::size_t t = 0; t < n_temporal_locs(); ++t) {
             // right hand side at time step t
             b_ << PsiTD() * y(t),   // should put W()
-              lambda_D() * lambda_T() * u(t);
+              lambda_D() * lambda_T() * (u(t) + u_neumann(t) + u_robin(t));
+            // impose dirichlet boundary conditions
+            set_dirichlet_bc(A_, b_, t);
+            invA_.compute(A_);
             // solve linear system Ax = b_(t) and store estimate of spatial field
             f_old(t) = invA_.solve(b_).head(A_.rows() / 2);
         }
@@ -292,7 +300,7 @@ class STRPDE<SpaceTimeParabolic, iterative> :
         //    G0 = [(\lambda_S*\lambda_T)/DeltaT * R_0 + \lambda_S*R_1^T]
         //    G0*g^(k,0) = \Psi^T*y^k + (\lambda_S*\lambda_T/DeltaT*R_0)*g^(k+1,0) - \Psi^T*\Psi*f^(k,0)
         SpMatrix<double> G0 =
-          (lambda_D() * lambda_T() / DeltaT()) * R0() + SpMatrix<double>((lambda_D() * R1()).transpose());
+          (lambda_D() * lambda_T() / DeltaT()) * R0() + SpMatrix<double>((lambda_D() * (R1() + R0_robin())).transpose());
         Eigen::SparseLU<SpMatrix<double>, Eigen::COLAMDOrdering<int>> invG0;
         invG0.compute(G0);   // compute factorization of matrix G0
 
@@ -323,8 +331,12 @@ class STRPDE<SpaceTimeParabolic, iterative> :
         BlockVector<double> f_new(n_temporal_locs(), n_spatial_basis()), g_new(n_temporal_locs(), n_spatial_basis());
         // iterative scheme for minimization of functional J
         while (i < max_iter_ && std::abs((Jnew - Jold) / Jnew) > tol_) {
+            std::cout << "Iteration " << i << std::endl;
             // at step 0 f^(k-1,i-1) is zero
-            b_ << PsiTD() * y(0) + (lambda_D() * lambda_T() / DeltaT()) * R0() * g_old(1), lambda_D() * u(0);
+            b_ << PsiTD() * y(0) + (lambda_D() * lambda_T() / DeltaT()) * R0() * g_old(1), lambda_D() * (u(0) + u_neumann(0) + u_robin(0));
+            // impose dirichlet bcs
+            set_dirichlet_bc(A_, b_, 0);
+            invA_.compute(A_);
             // solve linear system
             solve(0, f_new, g_new);
             // general step
@@ -332,13 +344,19 @@ class STRPDE<SpaceTimeParabolic, iterative> :
                 // \Psi^T*y^k   + (\lambda_D*\lambda_T/DeltaT)*R_0*g^(k+1,i-1),
                 // \lambda_D*u^k + (\lambda_D*\lambda_T/DeltaT)*R_0*f^(k-1,i-1)
                 b_ << PsiTD() * y(t) + (lambda_D() * lambda_T() / DeltaT()) * R0() * g_old(t + 1),
-                  lambda_D() * (lambda_T() / DeltaT() * R0() * f_old(t - 1) + u(t));
+                  lambda_D() * (lambda_T() / DeltaT() * R0() * f_old(t - 1) + (u(t) + u_neumann(t) + u_robin(t)));
+                // impose dirichlet bcs
+                set_dirichlet_bc(A_, b_, t);
+                invA_.compute(A_);
                 // solve linear system
                 solve(t, f_new, g_new);
             }
             // at last step g^(k+1,i-1) is zero
             b_ << PsiTD() * y(n_temporal_locs() - 1),
-              lambda_D() * (lambda_T() / DeltaT() * R0() * f_old(n_temporal_locs() - 2) + u(n_temporal_locs() - 1));
+              lambda_D() * (lambda_T() / DeltaT() * R0() * f_old(n_temporal_locs() - 2) + (u(n_temporal_locs() - 1) + u_neumann(n_temporal_locs() - 1) + u_robin(n_temporal_locs() - 1)));
+            // impose dirichlet bcs
+            set_dirichlet_bc(A_, b_, n_temporal_locs() - 1);
+            invA_.compute(A_);
             // solve linear system
             solve(n_temporal_locs() - 1, f_new, g_new);
             // prepare for next iteration
@@ -346,6 +364,7 @@ class STRPDE<SpaceTimeParabolic, iterative> :
             f_old = f_new;
             g_old = g_new;
             Jnew = J(f_old.get(), g_old.get());
+            std::cout << "J = " << Jnew << std::endl;
             i++;
         }
         // store solution
