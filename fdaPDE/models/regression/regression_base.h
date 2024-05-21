@@ -185,9 +185,8 @@ class RegressionBase :
         if (masked_obs().any()) B_ = (~masked_obs().blk_repeat(1, n_basis())).select(Psi(not_nan()));
     }
     // setters for boundary conditions
-    void set_dirichlet_bc(SparseBlockMatrix<double, 2, 2>& A, DVector<double>& b); // aggiungere index k=0 per caso time-dependent
-    // void set_neumann_bc(SparseBlockMatrix<double, 2, 2>& A, DVector<double>& b); // aggiungere index k=0 per caso time-dependent
-    // void set_robin_bc(SparseBlockMatrix<double, 2, 2>& A, DVector<double>& b); // aggiungere index k=0 per caso time-dependent
+    void set_dirichlet_bc(SparseBlockMatrix<double, 2, 2>& A, DVector<double>& b);
+    void set_dirichlet_bc(SparseBlockMatrix<double, 2, 2>& A, DVector<double>& b, int k);
 };
 
 
@@ -200,19 +199,21 @@ template <typename Model, typename RegularizationType> void RegressionBase<Model
     /* auto A_old = A;
     auto b_old = b; */
 
-    for (std::size_t i = 0; i < n; ++i) {
-        if (matrix(i,0) == 1) {
-            A.block(0,0).row(i) *= 0;  // zero all entries of this row
-            A.block(0,1).row(i) *= 0;
-            A.coeffRef(i, i) = 1;   // set diagonal element to 1 to impose equation u_j = b_j
+    if (!is_empty(this->pde().dirichlet_boundary_data())) {
+        for (std::size_t i = 0; i < n; ++i) {
+            if (matrix(i,0) == 1) {
+                A.block(0,0).row(i) *= 0;  // zero all entries of this row
+                A.block(0,1).row(i) *= 0;
+                A.coeffRef(i, i) = 1;   // set diagonal element to 1 to impose equation u_j = b_j
 
-            A.block(1,0).row(i) *= 0;  // zero all entries of this row
-            A.block(1,1).row(i) *= 0;
-            A.coeffRef(i + n, i + n) = 1;
+                A.block(1,0).row(i) *= 0;  // zero all entries of this row
+                A.block(1,1).row(i) *= 0;
+                A.coeffRef(i + n, i + n) = 1;
 
-            // dirichlet_boundary_data is a matrix D s.t. D_{i,j} = dirichlet datum at node i, timstep j
-            b.coeffRef(i) = this->pde().dirichlet_boundary_data()(i, 0);   // impose boundary value
-            b.coeffRef(i + n) = 0;
+                // dirichlet_boundary_data is a matrix D s.t. D_{i,j} = dirichlet datum at node i, timstep j
+                b.coeffRef(i) = this->pde().dirichlet_boundary_data()(i, 0);   // impose boundary value
+                b.coeffRef(i + n) = 0;
+            }
         }
     }
 
@@ -243,6 +244,33 @@ template <typename Model, typename RegularizationType> void RegressionBase<Model
             }
         }
     } */
+
+    return;
+}
+
+template <typename Model, typename RegularizationType> void RegressionBase<Model, RegularizationType>::set_dirichlet_bc(SparseBlockMatrix<double, 2, 2>& A, DVector<double>& b, int k) {
+    // do the is_init thing
+
+    std::size_t n = A.rows() / 2;
+    auto matrix = this->pde().matrix_bc_Dirichlet();
+
+    if (!is_empty(this->pde().dirichlet_boundary_data())) {
+        for (std::size_t i = 0; i < n; ++i) {
+            if (matrix(i,0) == 1) {
+                A.block(0,0).row(i) *= 0;  // zero all entries of this row
+                A.block(0,1).row(i) *= 0;
+                A.coeffRef(i, i) = 1;   // set diagonal element to 1 to impose equation u_j = b_j
+
+                A.block(1,0).row(i) *= 0;  // zero all entries of this row
+                A.block(1,1).row(i) *= 0;
+                A.coeffRef(i + n, i + n) = 1;
+
+                // dirichlet_boundary_data is a matrix D s.t. D_{i,j} = dirichlet datum at node i, timstep j
+                b.coeffRef(i) = this->pde().dirichlet_boundary_data()(i + k*n, 0);   // impose boundary value
+                b.coeffRef(i + n) = 0;
+            }
+        }
+    }
 
     return;
 }
