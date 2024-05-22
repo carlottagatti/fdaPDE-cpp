@@ -126,6 +126,7 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_i
     for (std::size_t i = 0; i < time_mesh.size(); ++i) time_mesh[i] = 1e-4*(i+1);
     // define spatial domain
     MeshLoader<Mesh2D> domain("unit_square");
+    DMatrix<short int> boundary_matrix = DMatrix<short int>::Zero(domain.mesh.n_nodes(), 1) ; // has all zeros
     // import data from files
     DMatrix<double> y  = read_csv<double>("../data/models/strpde_nonlinear/2D_test1/y.csv");
     DMatrix<double> IC = read_csv<double>("../data/models/strpde_nonlinear/2D_test1/IC.csv");
@@ -133,7 +134,7 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_i
     std::function<double(SVector<1>)> h_ = [&](SVector<1> ff) -> double {return 1 - ff[0];};
     NonLinearReaction<2, LagrangianBasis<decltype(domain.mesh),1>::ReferenceBasis> non_linear_reaction(h_);
     auto L = dt<FEM>() - laplacian<FEM>() - non_linear_op<FEM>(non_linear_reaction);
-    PDE<decltype(domain.mesh), decltype(L), DMatrix<double>, FEM, fem_order<1>> pde(domain.mesh, time_mesh, L);
+    PDE<decltype(domain.mesh), decltype(L), DMatrix<double>, FEM, fem_order<1>> pde(domain.mesh, time_mesh, L, boundary_matrix);
     pde.set_initial_condition(IC);
     //set forcing
     auto forcing_expr = [](SVector<2> x, double t) -> double {
@@ -228,6 +229,7 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_m
     for (std::size_t i = 0; i < time_mesh.size(); ++i) time_mesh[i] = 1e-4*(i+1);
     // define spatial domain
     MeshLoader<Mesh2D> domain("unit_square");
+    DMatrix<short int> boundary_matrix = DMatrix<short int>::Zero(domain.mesh.n_nodes(), 1);
     // import data from files
     DMatrix<double> y  = read_csv<double>("../data/models/strpde_nonlinear/2D_test1/y.csv");
     DMatrix<double> IC = read_csv<double>("../data/models/strpde_nonlinear/2D_test1/IC.csv");
@@ -235,7 +237,7 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_m
     std::function<double(SVector<1>)> h_ = [&](SVector<1> ff) -> double {return 1 - ff[0];};
     NonLinearReaction<2, LagrangianBasis<decltype(domain.mesh),1>::ReferenceBasis> non_linear_reaction(h_);
     auto L = dt<FEM>() - laplacian<FEM>() - non_linear_op<FEM>(non_linear_reaction);
-    PDE<decltype(domain.mesh), decltype(L), DMatrix<double>, FEM, fem_order<1>> pde(domain.mesh, time_mesh, L);
+    PDE<decltype(domain.mesh), decltype(L), DMatrix<double>, FEM, fem_order<1>> pde(domain.mesh, time_mesh, L, boundary_matrix);
     pde.set_initial_condition(IC);
     //set forcing
     auto forcing_expr = [](SVector<2> x, double t) -> double {
