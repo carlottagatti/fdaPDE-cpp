@@ -175,6 +175,15 @@ TEST(strpde_test, noncostantcoefficientspde_nonparametric_samplingareal_paraboli
     DMatrix<double> u = DMatrix<double>::Zero(domain.mesh.n_elements() * 6, time_mesh.rows());
     PDE<decltype(domain.mesh), decltype(L), DMatrix<double>, FEM, fem_order<1>> pde(domain.mesh, time_mesh, L); pde.set_forcing(u);
     pde.set_initial_condition(IC);
+    /* // set dirichlet bcs
+    DMatrix<double> nodes_ = pde.dof_coords();
+    DMatrix<double> dirichlet_bc(nodes_.rows(), time_mesh.size());
+    for (int i = 0; i < nodes_.rows(); ++i) {
+        for (int j = 0; j < time_mesh.size(); ++j) {
+            dirichlet_bc(i, j) = 13.;
+        }
+    }
+    pde.set_dirichlet_bc(dirichlet_bc); */
     // define model
     double lambda_D = std::pow(0.1, 6);
     double lambda_T = std::pow(0.1, 6);

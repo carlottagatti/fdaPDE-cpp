@@ -73,7 +73,7 @@ class STRPDE<SpaceTimeSeparable, monolithic> :
             if (is_empty(K_)) K_ = Kronecker(P1(), pde().mass());
             A_ = SparseBlockMatrix<double, 2, 2>(
               -PsiTD() * W() * Psi() - lambda_T() * K_, lambda_D() * R1().transpose(),
-	      lambda_D() * R1(),                        lambda_D() * R0()            );
+	          lambda_D() * R1(),                        lambda_D() * R0()            );
             invA_.compute(A_);
             // prepare rhs of linear system
             b_.resize(A_.rows());
@@ -173,12 +173,17 @@ class STRPDE<SpaceTimeParabolic, monolithic> :
         if (!Base::has_covariates()) {   // nonparametric case
             // update rhs of STR-PDE linear system
             b_.block(0, 0, A_.rows() / 2, 1) = -PsiTD() * W() * y();
+            // set dirichlet boundary conditions
+            set_dirichlet_bc(A_, b_);
+            invA_.compute(A_);
             // solve linear system A_*x = b_
             sol = invA_.solve(b_);
             f_ = sol.head(A_.rows() / 2);
         } else {   // parametric case
             // rhs of STR-PDE linear system
             b_.block(0, 0, A_.rows() / 2, 1) = -PsiTD() * lmbQ(y());   // -\Psi^T*D*Q*z
+            set_dirichlet_bc(A_, b_);
+            invA_.compute(A_);
             // matrices U and V for application of woodbury formula
             U_ = DMatrix<double>::Zero(A_.rows(), q());
             U_.block(0, 0, A_.rows() / 2, q()) = PsiTD() * W() * X();
@@ -195,9 +200,9 @@ class STRPDE<SpaceTimeParabolic, monolithic> :
         return;
     }
     // getters
-    SparseBlockMatrix<double, 2, 2>& A() { return A_; }
+    const SparseBlockMatrix<double, 2, 2>& A() const { return A_; }
     const fdapde::SparseLU<SpMatrix<double>>& invA() const { return invA_; }
-    DVector<double>& b() { return b_; }
+    const DVector<double>& b() const { return b_; }
     double norm(const DMatrix<double>& op1, const DMatrix<double>& op2) const {   // euclidian norm of op1 - op2
         return (op1 - op2).squaredNorm(); // NB: to check, defined just for compiler
     }

@@ -190,6 +190,112 @@ class STRPDE_NonLinear<SpaceTimeParabolic, monolithic> :
 }; */
 
 
+// Fixed-Point 
+template <>
+class STRPDE_NonLinear<SpaceTimeParabolic, monolithic> :
+    public RegressionBase<STRPDE_NonLinear<SpaceTimeParabolic, monolithic>, SpaceTimeParabolic> {
+   private:
+    SparseBlockMatrix<double, 2, 2> A_ {};      // system matrix of non-parametric problem (2N x 2N matrix)
+    fdapde::SparseLU<SpMatrix<double>> invA_;   // factorization of matrix A
+    DVector<double> b_ {};                      // right hand side of problem's linear system (1 x 2N vector)
+    SpMatrix<double> L_;                        // L \kron R0
+
+    // quantities related to iterative Fixed-Point scheme
+    double tol_ = 1e-4;           // tolerance used as stopping criterion
+    std::size_t max_iter_ = 15;   // maximum number of allowed iterations
+   public:
+    using RegularizationType = SpaceTimeParabolic;
+    using Base = RegressionBase<STRPDE_NonLinear<RegularizationType, monolithic>, RegularizationType>;
+    // import commonly defined symbols from base
+    IMPORT_REGRESSION_SYMBOLS;
+    using Base::L;          // [L]_{ii} = 1/DeltaT for i \in {1 ... m} and [L]_{i,i-1} = -1/DeltaT for i \in {1 ... m-1}
+    using Base::lambda_D;   // smoothing parameter in space
+    using Base::lambda_T;   // smoothing parameter in time
+    using Base::n_temporal_locs;   // number of time instants m defined over [0,T]
+    using Base::s;                 // initial condition
+    // constructor
+    STRPDE_NonLinear() = default;
+    STRPDE_NonLinear(const pde_ptr& pde, Sampling s) : Base(pde, s) {};
+
+    void init_model() { return; } // update model object in case of **structural** changes in its definition
+    void update_to_weights() {   // update model object in case of changes in the weights matrix
+        // adjust north-west block of matrix A_ and factorize
+        A_.block(0, 0) = -PsiTD() * W() * Psi();
+        invA_.compute(A_);
+        return;
+    }
+    void solve() {
+        fdapde_assert(y().rows() != 0);
+        if (is_empty(L_)) L_ = Kronecker(L(), pde().mass());
+        DVector<double> sol;             // room for problem' solution
+
+        int n = R0().rows();
+        DVector<double> f_prev =  DMatrix<double>::Zero(n, 1);
+
+        // start Newton iteration
+        for (size_t i = 0; i < max_iter_; ++i) {
+            std::cout << "iteration = " << i << std::endl;
+            // assemble system matrix for the nonparameteric part of the model
+            A_ = SparseBlockMatrix<double, 2, 2>(
+                -PsiTD() * W() * Psi(), lambda_D() * (R1_step_kronecker(f_prev) + R0_robin() + lambda_T() * L_).transpose(),
+                lambda_D() * (R1_step_kronecker(f_prev) + R0_robin() + lambda_T() * L_), lambda_D() * R0());
+            // prepare rhs of linear system
+            b_.resize(A_.rows());
+            b_.block(A_.rows() / 2, 0, A_.rows() / 2, 1) = lambda_D() * (u() + u_neumann() + u_robin());
+
+            if (!Base::has_covariates()) {   // nonparametric case
+                // update rhs of STR-PDE linear system
+                b_.block(0, 0, A_.rows() / 2, 1) = -PsiTD() * W() * y();
+                // set dirichlet bcs
+                set_dirichlet_bc(A_, b_);
+                // cache system matrix for reuse
+                invA_.compute(A_);
+                // solve linear system A_*x = b_
+                sol = invA_.solve(b_);
+                f_ = sol.head(A_.rows() / 2);
+            } else {   // parametric case
+                // rhs of STR-PDE linear system
+                b_.block(0, 0, A_.rows() / 2, 1) = -PsiTD() * lmbQ(y());   // -\Psi^T*D*Q*z
+                // set dirichlet bcs
+                set_dirichlet_bc(A_, b_);
+                // cache system matrix for reuse
+                invA_.compute(A_);
+                // matrices U and V for application of woodbury formula
+                U_ = DMatrix<double>::Zero(A_.rows(), q());
+                U_.block(0, 0, A_.rows() / 2, q()) = PsiTD() * W() * X();
+                V_ = DMatrix<double>::Zero(q(), A_.rows());
+                V_.block(0, 0, q(), A_.rows() / 2) = X().transpose() * W() * Psi();
+                // solve system (A_ + U_*(X^T*W_*X)*V_)x = b using woodbury formula from NLA module
+                sol = SMW<>().solve(invA_, U_, XtWX(), V_, b_);
+                // store result of smoothing
+                f_ = sol.head(A_.rows() / 2);
+                beta_ = invXtWX().solve(X().transpose() * W()) * (y() - Psi() * f_);
+            }
+            // store PDE misfit
+            g_ = sol.tail(A_.rows() / 2);
+
+            // Check convergence to stop early
+            auto incr = f_ - f_prev;
+            if (incr.norm() < tol_) break;
+            std::cout << "incr = " << incr.norm() << std::endl;
+
+            // update solution at the previou Fixed-Point step
+            f_prev = f_;
+        }
+        return;
+    }
+    // getters
+    const SparseBlockMatrix<double, 2, 2>& A() const { return A_; }
+    const fdapde::SparseLU<SpMatrix<double>>& invA() const { return invA_; }
+    const DVector<double>& b() const { return b_; }
+    double norm(const DMatrix<double>& op1, const DMatrix<double>& op2) const {   // euclidian norm of op1 - op2
+        return (op1 - op2).squaredNorm(); // NB: to check, defined just for compiler
+    }
+    // setters
+    void set_tolerance(double tol) { tol_ = tol; }
+    void set_max_iter(std::size_t max_iter) { max_iter_ = max_iter; }
+};
+
 // implementation of STRPDE for parabolic nonlinear space-time regularization, iterative approach
 template <>
 class STRPDE_NonLinear<SpaceTimeParabolic, iterative> :
@@ -243,7 +349,7 @@ class STRPDE_NonLinear<SpaceTimeParabolic, iterative> :
     void tensorize_psi() { return; } // avoid tensorization of \Psi matrix
     void init_regularization() {
         pde_.init();
-	s_ = pde_.initial_condition();
+	    s_ = pde_.initial_condition();
         // compute time step (assuming equidistant points)
         DeltaT_ = time_[1] - time_[0];
         u_ = pde_.force();   // compute forcing term
@@ -255,6 +361,12 @@ class STRPDE_NonLinear<SpaceTimeParabolic, iterative> :
     const SpMatrix<double>& R1() const { return pde_.stiff(); }   // discretization of differential operator L
     const SpMatrix<double>& R0_robin() const { return pde_.mass_robin(); }   // mass bpundary matrix due to RObin bcs
     std::size_t n_basis() const { return pde_.n_dofs(); }         // number of basis functions
+    const SparseBlockMatrix<double, 2, 2>& A() const { return A_; }
+    const fdapde::SparseLU<SpMatrix<double>>& invA() const { return invA_; }
+    const DVector<double>& b() const { return b_; }
+    double norm(const DMatrix<double>& op1, const DMatrix<double>& op2) const {   // euclidian norm of op1 - op2
+        return (op1 - op2).squaredNorm(); // NB: to check, defined just for compiler
+    }
 
     void init_model() { return; };
     void solve() {

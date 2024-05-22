@@ -98,7 +98,6 @@ TEST(srpde_test, laplacian_nonparametric_samplingatnodes) {
     model.set_data(df);
     // solve smoothing problem
     model.init();
-    /* model.set_dirichlet_bc(model.A(), model.b()); */
     model.solve();
     // test correctness
     EXPECT_TRUE(almost_equal(model.f()  , "../data/models/srpde/2D_test1/sol.mtx"));

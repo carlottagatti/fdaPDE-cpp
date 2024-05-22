@@ -23,6 +23,7 @@
 #include "model_base.h"
 using fdapde::core::pde_ptr;
 using fdapde::core::lump;
+using fdapde::core::SparseBlockMatrix;
 
 namespace fdapde {
 namespace models {
@@ -55,6 +56,7 @@ template <typename Model> class SpaceOnlyBase : public ModelBase<Model> {
         pde_ = pde;
         model().runtime().set(runtime_status::require_penalty_init);
     }
+    void set_dirichlet_bc(SparseBlockMatrix<double, 2, 2>& A, DVector<double>& b);
     // getters
     SVector<n_lambda> lambda() const { return lambda_; }
     double lambda_D() const { return lambda_[0]; }
@@ -89,6 +91,63 @@ template <typename Model> class SpaceOnlyBase : public ModelBase<Model> {
     SpMatrix<double> R0_lumped_;   // lumped mass matrix, if mass_lumping == true, empty otherwise
     SVector<n_lambda> lambda_ = SVector<n_lambda>::Zero();
 };
+
+template <typename Model> void SpaceOnlyBase <Model>::set_dirichlet_bc(SparseBlockMatrix<double, 2, 2>& A, DVector<double>& b) {
+    // do the is_init thing
+
+    std::size_t n = A.rows() / 2;
+    auto matrix = pde_.matrix_bc_Dirichlet();
+
+    /* auto A_old = A;
+    auto b_old = b; */
+    if (!is_empty(pde_.dirichlet_boundary_data())) {
+        for (std::size_t i = 0; i < n; ++i) {
+            if (matrix(i,0) == 1) {
+                A.block(0,0).row(i) *= 0;  // zero all entries of this row
+                A.block(0,1).row(i) *= 0;
+                A.coeffRef(i, i) = 1;   // set diagonal element to 1 to impose equation u_j = b_j
+
+                A.block(1,0).row(i) *= 0;  // zero all entries of this row
+                A.block(1,1).row(i) *= 0;
+                A.coeffRef(i + n, i + n) = 1;
+
+                // dirichlet_boundary_data is a matrix D s.t. D_{i,j} = dirichlet datum at node i, timstep j
+                b.coeffRef(i) = pde_.dirichlet_boundary_data()(i, 0);   // impose boundary value
+                b.coeffRef(i + n) = 0;
+            }
+        }
+    }
+
+    // check the correctness of the method
+    /* for(size_t i=0; i<n; ++i){
+        for(size_t j=0; j<n; ++j){
+            // block 1
+            if (matrix(i,0) == 1) { // if "i" is a Dirichlet boundary node
+                if (i != j) { // not on the diagonal
+                    if (A.coeffRef(i,j) != 0) std::cout << "A(" << i << ", " << j << ") != 0" << std::endl;
+                    if (A.coeffRef(i+n,j) != 0) std::cout << "A(" << i+n << ", " << j << ") != 0" << std::endl;
+                    if (A.coeffRef(i,j+n) != 0) std::cout << "A(" << i << ", " << j+n << ") != 0" << std::endl;
+                    if (A.coeffRef(i+n,j+n) != 0) std::cout << "A(" << i+n << ", " << j+n << ") != 0" << std::endl;
+
+                }
+                else {
+                    if (A.coeffRef(i,j) != 1) std::cout << "A(" << i << ", " << j << ") != 1" << std::endl;
+                    if (A.coeffRef(i+n,j+n) != 1) std::cout << "A(" << i << ", " << j << ") != 1" << std::endl;
+                    if (A.coeffRef(i+n,j) != 0) std::cout << "A(" << i+n << ", " << j << ") != 0" << std::endl;
+                    if (A.coeffRef(i,j+n) != 0) std::cout << "A(" << i << ", " << j+n << ") != 0" << std::endl;
+                }
+            }
+            else {
+                if (A_old.coeffRef(i,j) != A.coeffRef(i,j)) std::cout << "PROBLEM!" << std::endl;
+                if (A_old.coeffRef(i+n,j) != A.coeffRef(i+n,j)) std::cout << "PROBLEM!" << std::endl;
+                if (A_old.coeffRef(i,j+n) != A.coeffRef(i,j+n)) std::cout << "PROBLEM!" << std::endl;
+                if (A_old.coeffRef(i+n,j+n) != A.coeffRef(i+n,j+n)) std::cout << "PROBLEM!" << std::endl;
+            }
+        }
+    } */
+
+    return;
+}
 
 }   // namespace models
 }   // namespace fdapde

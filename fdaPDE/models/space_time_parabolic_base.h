@@ -95,11 +95,14 @@ class SpaceTimeParabolicBase : public SpaceTimeBase<Model, SpaceTimeParabolic> {
         pde_ = pde;
         model().runtime().set(runtime_status::require_penalty_init);
     }
+    void set_dirichlet_bc(SparseBlockMatrix<double, 2, 2>& A, DVector<double>& b);
+    void set_dirichlet_bc(SparseBlockMatrix<double, 2, 2>& A, DVector<double>& b, int k);
     // getters
     const pde_ptr& pde() const { return pde_; }   // regularizing term df/dt + Lf - u
     const SpMatrix<double>& R0() const { return R0_; }
     const SpMatrix<double>& R1() const { return R1_; }
     const SpMatrix<double> R1_step(const DVector<double>& f) const { return pde_.stiff_step(f); };   // stiff matrix evaluated in f (usuful when we have a nonlinearity)
+    const SpMatrix<double> R1_step_kronecker(const DVector<double>& f) const { return Kronecker(Im_, pde_.stiff_step(f)); };   // stiff matrix evaluated in f (usuful when we have a nonlinearity)
     std::size_t n_basis() const { return pde_.n_dofs(); }   // number of basis functions
     std::size_t n_spatial_basis() const { return pde_.n_dofs(); }
     const SpMatrix<double>& L() const { return L_; }
@@ -123,6 +126,101 @@ class SpaceTimeParabolicBase : public SpaceTimeBase<Model, SpaceTimeParabolic> {
     // destructor
     virtual ~SpaceTimeParabolicBase() = default;
 };
+
+// impose boundary condition to the wholo matrix (monolithic approach case)
+template <typename Model> void SpaceTimeParabolicBase<Model>::set_dirichlet_bc(SparseBlockMatrix<double, 2, 2>& A, DVector<double>& b) {
+    // do the is_init thing
+
+    std::size_t n_block = A.rows() / 2;
+    std::size_t m = time_.rows();
+    auto matrix = pde_.matrix_bc_Dirichlet();
+    std::size_t n = matrix.rows();
+
+    // std::cout << "n*m = n_block = " << n_block << std::endl;
+    // std::cout << "timesteps = m = " << m << std::endl;
+    // std::cout << "#dofs = n = " << n << std::endl;
+
+    /* auto A_old = A;
+    auto b_old = b; */
+
+    if (!is_empty(pde_.dirichlet_boundary_data())) {
+        for (std::size_t i = 0; i < n; ++i) {
+            if (matrix(i,0) == 1) {
+                for (std::size_t j = 0; j < m; ++j){
+                    A.block(0,0).row(i + j*n) *= 0;  // zero all entries of this row
+                    A.block(0,1).row(i + j*n) *= 0;
+                    A.coeffRef(i + j*n, i + j*n) = 1;   // set diagonal element to 1 to impose equation u_j = b_j
+
+                    A.block(1,0).row(i + j*n) *= 0;  // zero all entries of this row
+                    A.block(1,1).row(i + j*n) *= 0;
+                    A.coeffRef(i + n_block + j*n, i + n_block + j*n) = 1;
+
+                    // dirichlet_boundary_data is a matrix D s.t. D_{i,j} = dirichlet datum at node i, timstep j
+                    b.coeffRef(i + j*n) = pde_.dirichlet_boundary_data()(i + j*n, 0);   // impose boundary value
+                    b.coeffRef(i + n_block + j*n) = 0;
+                }
+            }
+        }
+    }
+
+    // check the correctness of the method
+    /* for(size_t i=0; i<n_block; ++i){
+        for(size_t j=0; j<n_block; ++j){
+            // block 1
+            if (matrix(i,0) == 1) { // if "i" is a Dirichlet boundary node
+                if (i != j) { // not on the diagonal
+                    if (A.coeffRef(i,j) != 0) std::cout << "A(" << i << ", " << j << ") != 0" << std::endl;
+                    if (A.coeffRef(i+n_block,j) != 0) std::cout << "A(" << i+n_block << ", " << j << ") != 0" << std::endl;
+                    if (A.coeffRef(i,j+n_block) != 0) std::cout << "A(" << i << ", " << j+n_block << ") != 0" << std::endl;
+                    if (A.coeffRef(i+n_block,j+n_block) != 0) std::cout << "A(" << i+n_block << ", " << j+n_block << ") != 0" << std::endl;
+
+                }
+                else {
+                    if (A.coeffRef(i,j) != 1) std::cout << "A(" << i << ", " << j << ") != 1" << std::endl;
+                    if (A.coeffRef(i+n_block,j+n_block) != 1) std::cout << "A(" << i << ", " << j << ") != 1" << std::endl;
+                    if (A.coeffRef(i+n_block,j) != 0) std::cout << "A(" << i+n_block << ", " << j << ") != 0" << std::endl;
+                    if (A.coeffRef(i,j+n_block) != 0) std::cout << "A(" << i << ", " << j+n_block << ") != 0" << std::endl;
+                }
+            }
+            else {
+                if (A_old.coeffRef(i,j) != A.coeffRef(i,j)) std::cout << "PROBLEM!" << std::endl;
+                if (A_old.coeffRef(i+n_block,j) != A.coeffRef(i+n_block,j)) std::cout << "PROBLEM!" << std::endl;
+                if (A_old.coeffRef(i,j+n_block) != A.coeffRef(i,j+n_block)) std::cout << "PROBLEM!" << std::endl;
+                if (A_old.coeffRef(i+n_block,j+n_block) != A.coeffRef(i+n_block,j+n_block)) std::cout << "PROBLEM!" << std::endl;
+            }
+        }
+    } */
+
+    return;
+}
+
+// set dirichlet boundary conditions when solving the problem concerning timestep k
+template <typename Model> void SpaceTimeParabolicBase<Model>::set_dirichlet_bc(SparseBlockMatrix<double, 2, 2>& A, DVector<double>& b, int k) {
+    // do the is_init thing
+
+    std::size_t n = A.rows() / 2;
+    auto matrix = this->pde().matrix_bc_Dirichlet();
+
+    if (!is_empty(this->pde().dirichlet_boundary_data())) {
+        for (std::size_t i = 0; i < n; ++i) {
+            if (matrix(i,0) == 1) {
+                A.block(0,0).row(i) *= 0;  // zero all entries of this row
+                A.block(0,1).row(i) *= 0;
+                A.coeffRef(i, i) = 1;   // set diagonal element to 1 to impose equation u_j = b_j
+
+                A.block(1,0).row(i) *= 0;  // zero all entries of this row
+                A.block(1,1).row(i) *= 0;
+                A.coeffRef(i + n, i + n) = 1;
+
+                // dirichlet_boundary_data is a matrix D s.t. D_{i,j} = dirichlet datum at node i, timstep j
+                b.coeffRef(i) = this->pde().dirichlet_boundary_data()(i + k*n, 0);   // impose boundary value
+                b.coeffRef(i + n) = 0;
+            }
+        }
+    }
+
+    return;
+}
   
 }   // namespace models
 }   // namespace fdapde

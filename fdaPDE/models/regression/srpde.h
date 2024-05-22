@@ -56,7 +56,7 @@ class SRPDE : public RegressionBase<SRPDE, SpaceOnly> {
             // assemble system matrix for nonparameteric part
             A_ = SparseBlockMatrix<double, 2, 2>(
               -PsiTD() * W() * Psi(), lambda_D() * (R1() + R0_robin()).transpose(),
-	      lambda_D() * (R1() + R0_robin()),      lambda_D() * R0()            );
+	          lambda_D() * (R1() + R0_robin()),      lambda_D() * R0()            );
             invA_.compute(A_);
             // prepare rhs of linear system
             b_.resize(A_.rows());
@@ -79,6 +79,9 @@ class SRPDE : public RegressionBase<SRPDE, SpaceOnly> {
         if (!has_covariates()) {   // nonparametric case
             // update rhs of SR-PDE linear system
             b_.block(0, 0, n_basis(), 1) = -PsiTD() * W() * y();
+            // set dirichlet bcs
+            set_dirichlet_bc(A_, b_);
+            invA_.compute(A_);
             // solve linear system A_*x = b_
             sol = invA_.solve(b_);
             f_ = sol.head(n_basis());
@@ -103,9 +106,9 @@ class SRPDE : public RegressionBase<SRPDE, SpaceOnly> {
     // GCV support
     double norm(const DMatrix<double>& op1, const DMatrix<double>& op2) const { return (op1 - op2).squaredNorm(); }
     // getters
-    SparseBlockMatrix<double, 2, 2>& A() { return A_; }
+    const SparseBlockMatrix<double, 2, 2>& A() const { return A_; }
     const fdapde::SparseLU<SpMatrix<double>>& invA() const { return invA_; }
-    DVector<double>& b() { return b_; }
+    const DVector<double>& b() const { return b_; }
     virtual ~SRPDE() = default;
 };
 
