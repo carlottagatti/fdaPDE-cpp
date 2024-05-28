@@ -66,13 +66,24 @@ class GCV {
         model_.set_lambda(lambda);
         model_.init();
         model_.solve();
+        std::cout << "solved" << std::endl;
         // compute equivalent degrees of freedom given current lambda (if not already cached)
         if (cache_.find(lambda) == cache_.end()) { cache_[lambda] = trS_.compute(); }
+        std::cout << "debug" << std::endl;
         double trS = cache_[lambda];
+        std::cout << "trS = " << trS << std::endl;
+        // std::cout << "debug" << std::endl;
         double q = model_.q();            // number of covariates
+        // std::cout << "debug" << std::endl;
         std::size_t n = model_.n_obs();   // number of observations
+        // std::cout << "debug" << std::endl;
         double dor = n - (q + trS);       // residual degrees of freedom
+        // std::cout << "#observations = n = " << n << std::endl;
+        // std::cout << "#covariates = q = " << q << std::endl;
+        std::cout << "dor = n-(q + trS) = " << dor << std::endl;
+        // std::cout << "debug" << std::endl;
         edfs_.emplace_back(q + trS);      // store equivalent degrees of freedom
+        // std::cout << "debug" << std::endl;
         // return gcv at point
         double gcv_value = (n / std::pow(dor, 2)) * (model_.norm(model_.fitted(), model_.y()));
         gcvs_.emplace_back(gcv_value);

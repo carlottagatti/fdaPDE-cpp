@@ -88,6 +88,9 @@ class SRPDE : public RegressionBase<SRPDE, SpaceOnly> {
         } else {   // parametric case
             // update rhs of SR-PDE linear system
             b_.block(0, 0, n_basis(), 1) = -PsiTD() * lmbQ(y());   // -\Psi^T*D*Q*z
+            // set dirichlet bcs
+            set_dirichlet_bc(A_, b_);
+            invA_.compute(A_);
             // matrices U and V for application of woodbury formula
             U_ = DMatrix<double>::Zero(2 * n_basis(), q());
             U_.block(0, 0, n_basis(), q()) = PsiTD() * W() * X();

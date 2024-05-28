@@ -150,8 +150,6 @@ class STRPDE<SpaceTimeParabolic, monolithic> :
         A_ = SparseBlockMatrix<double, 2, 2>(
           -PsiTD() * W() * Psi(), lambda_D() * (R1() + R0_robin() + lambda_T() * L_).transpose(),
           lambda_D() * (R1() + R0_robin() + lambda_T() * L_), lambda_D() * R0());
-        // cache system matrix for reuse
-        invA_.compute(A_);
         // prepare rhs of linear system
         b_.resize(A_.rows());
         b_.block(A_.rows() / 2, 0, A_.rows() / 2, 1) = lambda_D() * (u() + u_neumann() + u_robin());
@@ -175,6 +173,7 @@ class STRPDE<SpaceTimeParabolic, monolithic> :
             b_.block(0, 0, A_.rows() / 2, 1) = -PsiTD() * W() * y();
             // set dirichlet boundary conditions
             set_dirichlet_bc(A_, b_);
+            // cache system matrix and its factorization
             invA_.compute(A_);
             // solve linear system A_*x = b_
             sol = invA_.solve(b_);
@@ -183,6 +182,7 @@ class STRPDE<SpaceTimeParabolic, monolithic> :
             // rhs of STR-PDE linear system
             b_.block(0, 0, A_.rows() / 2, 1) = -PsiTD() * lmbQ(y());   // -\Psi^T*D*Q*z
             set_dirichlet_bc(A_, b_);
+            // cache system matrix and its factorization
             invA_.compute(A_);
             // matrices U and V for application of woodbury formula
             U_ = DMatrix<double>::Zero(A_.rows(), q());
@@ -283,9 +283,10 @@ class STRPDE<SpaceTimeParabolic, iterative> :
         A_ = SparseBlockMatrix<double, 2, 2>(
           PsiTD() * Psi(),   lambda_D() * (R1() + R0_robin()).transpose(),
 	      lambda_D() * (R1() + R0_robin()), -lambda_D() * R0()           );
+        b_.resize(A_.rows());
+        set_dirichlet_bc(A_, b_, 0);
         // cache system matrix and its factorization
         invA_.compute(A_);
-        b_.resize(A_.rows());
 
         // compute f^(k,0), k = 1 ... m as solution of Ax = b_(k)
         BlockVector<double> f_old(n_temporal_locs(), n_spatial_basis());
@@ -295,8 +296,7 @@ class STRPDE<SpaceTimeParabolic, iterative> :
             b_ << PsiTD() * y(t),   // should put W()
               lambda_D() * lambda_T() * (u(t) + u_neumann(t) + u_robin(t));
             // impose dirichlet boundary conditions
-            set_dirichlet_bc(A_, b_, t);
-            invA_.compute(A_);
+            set_dirichlet_bc(b_, t);
             // solve linear system Ax = b_(t) and store estimate of spatial field
             f_old(t) = invA_.solve(b_).head(A_.rows() / 2);
         }
@@ -329,8 +329,9 @@ class STRPDE<SpaceTimeParabolic, iterative> :
         // build system matrix for the iterative scheme
         A_.block(0, 1) += lambda_D() * lambda_T() / DeltaT() * R0();
         A_.block(1, 0) += lambda_D() * lambda_T() / DeltaT() * R0();
-        invA_.compute(A_);
         b_.resize(A_.rows());
+        set_dirichlet_bc(A_, b_, 0);
+        invA_.compute(A_);
 
         // internal iteration variables
         BlockVector<double> f_new(n_temporal_locs(), n_spatial_basis()), g_new(n_temporal_locs(), n_spatial_basis());
@@ -340,8 +341,7 @@ class STRPDE<SpaceTimeParabolic, iterative> :
             // at step 0 f^(k-1,i-1) is zero
             b_ << PsiTD() * y(0) + (lambda_D() * lambda_T() / DeltaT()) * R0() * g_old(1), lambda_D() * (u(0) + u_neumann(0) + u_robin(0));
             // impose dirichlet bcs
-            set_dirichlet_bc(A_, b_, 0);
-            invA_.compute(A_);
+            set_dirichlet_bc(b_, 0);
             // solve linear system
             solve(0, f_new, g_new);
             // general step
@@ -351,8 +351,7 @@ class STRPDE<SpaceTimeParabolic, iterative> :
                 b_ << PsiTD() * y(t) + (lambda_D() * lambda_T() / DeltaT()) * R0() * g_old(t + 1),
                   lambda_D() * (lambda_T() / DeltaT() * R0() * f_old(t - 1) + (u(t) + u_neumann(t) + u_robin(t)));
                 // impose dirichlet bcs
-                set_dirichlet_bc(A_, b_, t);
-                invA_.compute(A_);
+                set_dirichlet_bc(b_, t);
                 // solve linear system
                 solve(t, f_new, g_new);
             }
@@ -360,8 +359,7 @@ class STRPDE<SpaceTimeParabolic, iterative> :
             b_ << PsiTD() * y(n_temporal_locs() - 1),
               lambda_D() * (lambda_T() / DeltaT() * R0() * f_old(n_temporal_locs() - 2) + (u(n_temporal_locs() - 1) + u_neumann(n_temporal_locs() - 1) + u_robin(n_temporal_locs() - 1)));
             // impose dirichlet bcs
-            set_dirichlet_bc(A_, b_, n_temporal_locs() - 1);
-            invA_.compute(A_);
+            set_dirichlet_bc(b_, n_temporal_locs() - 1);
             // solve linear system
             solve(n_temporal_locs() - 1, f_new, g_new);
             // prepare for next iteration

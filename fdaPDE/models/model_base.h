@@ -29,6 +29,7 @@ namespace fdapde {
 // supported resolution strategies
 struct monolithic {};
 struct iterative {};
+struct iterative_EI {};
 struct sequential {};
   
 namespace models {
@@ -85,28 +86,6 @@ template <typename Model> class ModelBase {
     inline Model& model() { return static_cast<Model&>(*this); }
     inline const Model& model() const { return static_cast<const Model&>(*this); }
 };
-
-// set boundary conditions on problem's linear system
-// BUG: not working - fix needed due to SparseBlockMatrix interface
-// template <typename Model> void ModelBase<Model>::set_dirichlet_bc(SpMatrix<double>& A, DMatrix<double>& b) {
-//     std::size_t n = A.rows() / 2;
-
-//     for (std::size_t i = 0; i < n; ++i) {
-//         if (pde_->domain().is_on_boundary(i)) {
-//             A.row(i) *= 0;          // zero all entries of this row
-//             A.coeffRef(i, i) = 1;   // set diagonal element to 1 to impose equation u_j = b_j
-
-//             A.row(i + n) *= 0;
-//             A.coeffRef(i + n, i + n) = 1;
-
-//             // boundaryDatum is a pair (nodeID, boundary value)
-//             double boundaryDatum = pde_->boundaryData().empty() ? 0 : pde_->boundaryData().at(i)[0];
-//             b.coeffRef(i, 0) = boundaryDatum;   // impose boundary value
-//             b.coeffRef(i + n, 0) = 0;
-//         }
-//     }
-//     return;
-// }
 
 }   // namespace models
 }   // namespace fdapde

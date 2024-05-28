@@ -31,9 +31,13 @@ class ExactEDF {
     // computes smoothing matrix S = Q*\Psi*T^{-1}*\Psi^T
     const DMatrix<double>& S() {
         // factorize matrix T
+        std::cout << "In T" << std::endl;
         invT_ = model_.T().partialPivLu();
+        std::cout << "invT computed" << std::endl;
         DMatrix<double> E_ = model_.PsiTD();    // need to cast to dense for PartialPivLU::solve()
+        std::cout << "E computed" << std::endl;
         S_ = model_.lmbQ(model_.Psi() * invT_.solve(E_));   // \Psi*T^{-1}*\Psi^T*Q
+        std::cout << "S computed" << std::endl;
         return S_;
     };
    public:

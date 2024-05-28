@@ -96,13 +96,28 @@ class SpaceTimeParabolicBase : public SpaceTimeBase<Model, SpaceTimeParabolic> {
         model().runtime().set(runtime_status::require_penalty_init);
     }
     void set_dirichlet_bc(SparseBlockMatrix<double, 2, 2>& A, DVector<double>& b);
+    void set_dirichlet_bc(DVector<double>& b);
     void set_dirichlet_bc(SparseBlockMatrix<double, 2, 2>& A, DVector<double>& b, int k);
+    void set_dirichlet_bc(DVector<double>& b, int k);
     // getters
     const pde_ptr& pde() const { return pde_; }   // regularizing term df/dt + Lf - u
     const SpMatrix<double>& R0() const { return R0_; }
     const SpMatrix<double>& R1() const { return R1_; }
     const SpMatrix<double> R1_step(const DVector<double>& f) const { return pde_.stiff_step(f); };   // stiff matrix evaluated in f (usuful when we have a nonlinearity)
-    const SpMatrix<double> R1_step_kronecker(const DVector<double>& f) const { return Kronecker(Im_, pde_.stiff_step(f)); };   // stiff matrix evaluated in f (usuful when we have a nonlinearity)
+    const SpMatrix<double> R1_step_kronecker(const DVector<double>& f) { // set R1_ to the stiff matrix evaluated in f and returns it (usuful when we have a nonlinearity)
+        std::size_t m = time_.rows();  // number of time points
+        std::size_t n = n_basis();     // number of dofs
+        SpMatrix<double> I(m, m);
+        R1_ = SpMatrix<double>(n*m, n*m);
+        for (std::size_t i=0; i<m; ++i){
+            I.coeffRef(i,i) = 1;
+            R1_ += Kronecker(I, pde_.stiff_step(f.block(n*i, 0, n, 1)));
+            I.coeffRef(i,i) = 0;
+        }
+            
+        return R1_;
+    };
+    const DMatrix<double>& dirichlet_boundary_data() const { return pde_.dirichlet_boundary_data(); };
     std::size_t n_basis() const { return pde_.n_dofs(); }   // number of basis functions
     std::size_t n_spatial_basis() const { return pde_.n_dofs(); }
     const SpMatrix<double>& L() const { return L_; }
@@ -115,7 +130,7 @@ class SpaceTimeParabolicBase : public SpaceTimeBase<Model, SpaceTimeParabolic> {
 
     // computes and cache matrices (Im \kron R0)^{-1} and L \kron R0, returns the discretized penalty P =
     // \lambda_D*((Im \kron R1 + \lambda_T*(L \kron R0))^T*(I_m \kron R0)^{-1}*(Im \kron R1 + \lambda_T*(L \kron R0)))
-    auto P() {
+    SpMatrix<double> P() {
         if (is_empty(pen_)) {   // compute once and cache result
             invR0_.compute(R0());
             penT_ = Kronecker(L_, pde_.mass());
@@ -127,7 +142,7 @@ class SpaceTimeParabolicBase : public SpaceTimeBase<Model, SpaceTimeParabolic> {
     virtual ~SpaceTimeParabolicBase() = default;
 };
 
-// impose boundary condition to the wholo matrix (monolithic approach case)
+// impose boundary condition to the whole matrix and vector (monolithic approach case)
 template <typename Model> void SpaceTimeParabolicBase<Model>::set_dirichlet_bc(SparseBlockMatrix<double, 2, 2>& A, DVector<double>& b) {
     // do the is_init thing
 
@@ -194,6 +209,30 @@ template <typename Model> void SpaceTimeParabolicBase<Model>::set_dirichlet_bc(S
     return;
 }
 
+// impose boundary condition to the whole vector (monolithic approach case)
+template <typename Model> void SpaceTimeParabolicBase<Model>::set_dirichlet_bc(DVector<double>& b) {
+    // do the is_init thing
+
+    std::size_t n_block = b.rows() / 2;
+    std::size_t m = time_.rows();
+    auto matrix = pde_.matrix_bc_Dirichlet();
+    std::size_t n = matrix.rows();
+
+    if (!is_empty(pde_.dirichlet_boundary_data())) {
+        for (std::size_t i = 0; i < n; ++i) {
+            if (matrix(i,0) == 1) {
+                for (std::size_t j = 0; j < m; ++j){
+                    // dirichlet_boundary_data is a matrix D s.t. D_{i,j} = dirichlet datum at node i, timstep j
+                    b.coeffRef(i + j*n) = pde_.dirichlet_boundary_data()(i + j*n, 0);   // impose boundary value
+                    b.coeffRef(i + n_block + j*n) = 0;
+                }
+            }
+        }
+    }
+
+    return;
+}
+
 // set dirichlet boundary conditions when solving the problem concerning timestep k
 template <typename Model> void SpaceTimeParabolicBase<Model>::set_dirichlet_bc(SparseBlockMatrix<double, 2, 2>& A, DVector<double>& b, int k) {
     // do the is_init thing
@@ -212,6 +251,26 @@ template <typename Model> void SpaceTimeParabolicBase<Model>::set_dirichlet_bc(S
                 A.block(1,1).row(i) *= 0;
                 A.coeffRef(i + n, i + n) = 1;
 
+                // dirichlet_boundary_data is a matrix D s.t. D_{i,j} = dirichlet datum at node i, timstep j
+                b.coeffRef(i) = this->pde().dirichlet_boundary_data()(i + k*n, 0);   // impose boundary value
+                b.coeffRef(i + n) = 0;
+            }
+        }
+    }
+
+    return;
+}
+
+// set dirichlet boundary conditions to vector b when solving the problem concerning timestep k
+template <typename Model> void SpaceTimeParabolicBase<Model>::set_dirichlet_bc(DVector<double>& b, int k) {
+    // do the is_init thing
+
+    std::size_t n = b.rows() / 2;
+    auto matrix = this->pde().matrix_bc_Dirichlet();
+
+    if (!is_empty(this->pde().dirichlet_boundary_data())) {
+        for (std::size_t i = 0; i < n; ++i) {
+            if (matrix(i,0) == 1) {
                 // dirichlet_boundary_data is a matrix D s.t. D_{i,j} = dirichlet datum at node i, timstep j
                 b.coeffRef(i) = this->pde().dirichlet_boundary_data()(i + k*n, 0);   // impose boundary value
                 b.coeffRef(i + n) = 0;

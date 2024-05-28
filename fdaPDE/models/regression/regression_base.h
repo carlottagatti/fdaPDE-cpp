@@ -145,6 +145,16 @@ class RegressionBase :
         return GCV(Base::model(), EDFStrategy_(std::forward<Args>(args)...));
     }
     const DMatrix<double>& T() {   // T = \Psi^\top*Q*\Psi + P
+        std::cout << "In T()" << std::endl;
+        auto au = P();
+        std::cout << "size P = " << au.rows() << "x" << au.cols() << std::endl;
+        std::cout << "P called" << std::endl;
+        auto au1 = PsiTD();
+        std::cout << "size PsiTD = " << au1.rows() << "x" << au1.cols() << std::endl;
+        std::cout << "PsiTD called" << std::endl;
+        auto au2 = lmbQ(Psi());
+        std::cout << "size lmbq = " << au2.rows() << "x" << au2.cols() << std::endl;
+        std::cout << "lmbQ called" << std::endl;
         T_ = PsiTD() * lmbQ(Psi()) + P();
         return T_;
     }

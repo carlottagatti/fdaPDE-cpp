@@ -60,13 +60,22 @@ class StochasticEDF {
                         Us_(i, j) = -1.0;
                 }
             }
+            std::cout << "Us size = " << Us_.rows() << "x" << Us_.cols() << std::endl;
+            // std::cout << "Psi size = " << model_.Psi().rows() << "x" << model_.Psi().cols() << std::endl;
             // prepare matrix Y
             Y_ = Us_.transpose() * model_.Psi();
             init_ = true;   // never reinitialize again
         }
+        // std::cout << "Y size = " << Y_.rows() << "x" << Y_.cols() << std::endl;
         // prepare matrix Bs_
-        std::size_t n = model_.n_basis();
+        //std::size_t n = model_.n_basis();
+        std::size_t n = model_.Psi().cols();
         Bs_ = DMatrix<double>::Zero(2 * n, r_);
+        std::cout << "n = " << n << std::endl;
+        std::cout << model_.n_basis() << std::endl;
+        std::cout << "PsiTD size = " << model_.PsiTD().rows() << "x" << model_.PsiTD().cols() << std::endl;
+        std::cout << "W size = " << model_.W().rows() << "x" << model_.W().cols() << std::endl;
+        // std::cout << "lmbq us size = " << model_.lmbQ(Us_).rows() << "x" << model_.lmbQ(Us_).cols() << std::endl;
         if (!model_.has_covariates())   // non-parametric model
             Bs_.topRows(n) = -model_.PsiTD() * model_.W() * Us_;
         else   // semi-parametric model

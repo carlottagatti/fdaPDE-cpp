@@ -28,10 +28,10 @@ using fdapde::core::DiscretizedMatrixField;
 using fdapde::core::PDE;
 using fdapde::core::DiscretizedVectorField;
 
-#include "../../fdaPDE/models/regression/srpde.h"
+// #include "../../fdaPDE/models/regression/srpde.h"
 #include "../../fdaPDE/models/regression/gcv.h"
 #include "../../fdaPDE/models/sampling_design.h"
-using fdapde::models::SRPDE;
+// using fdapde::models::SRPDE;
 using fdapde::models::SpaceOnly;
 using fdapde::models::ExactEDF;
 using fdapde::models::GCV;
@@ -79,6 +79,15 @@ TEST(gcv_srpde_test, laplacian_nonparametric_samplingatnodes_spaceonly_gridexact
     // optimize GCV
     Grid<fdapde::Dynamic> opt;
     opt.optimize(GCV, lambdas);
+
+    std::cout << "EDFS:" << std::endl;
+    for (size_t i=0; i<GCV.edfs().size(); ++i) std::cout << GCV.edfs()[i] << std::endl;
+    std::cout << "\n" << "GCVS:" << std::endl;
+    for (size_t i=0; i<GCV.gcvs().size(); ++i) std::cout << GCV.gcvs()[i] << std::endl;
+
+    std::cout << "OPTIMUM = " << opt.optimum() << std::endl;
+    std::cout << "VALUE = " << opt.value() << std::endl;
+
     // test correctness
     EXPECT_TRUE(almost_equal(GCV.edfs(), "../data/models/gcv/2D_test1/edfs.mtx"));
     EXPECT_TRUE(almost_equal(GCV.gcvs(), "../data/models/gcv/2D_test1/gcvs.mtx"));
@@ -117,6 +126,15 @@ TEST(gcv_srpde_test, laplacian_nonparametric_samplingatnodes_spaceonly_gridstoch
     // optimize GCV
     Grid<fdapde::Dynamic> opt;
     opt.optimize(GCV, lambdas);
+
+    std::cout << "EDFS:" << std::endl;
+    for (size_t i=0; i<GCV.edfs().size(); ++i) std::cout << GCV.edfs()[i] << std::endl;
+    std::cout << "\n" << "GCVS:" << std::endl;
+    for (size_t i=0; i<GCV.gcvs().size(); ++i) std::cout << GCV.gcvs()[i] << std::endl;
+
+    std::cout << "OPTIMUM = " << opt.optimum() << std::endl;
+    std::cout << "VALUE = " << opt.value() << std::endl;
+
     // test correctness
     EXPECT_TRUE(almost_equal(GCV.edfs(), "../data/models/gcv/2D_test2/edfs.mtx"));
     EXPECT_TRUE(almost_equal(GCV.gcvs(), "../data/models/gcv/2D_test2/gcvs.mtx"));
@@ -161,6 +179,15 @@ TEST(gcv_srpde_test, laplacian_semiparametric_samplingatlocations_gridexact) {
     // optimize GCV
     Grid<fdapde::Dynamic> opt;
     opt.optimize(GCV, lambdas);
+
+    std::cout << "EDFS:" << std::endl;
+    for (size_t i=0; i<GCV.edfs().size(); ++i) std::cout << GCV.edfs()[i] << std::endl;
+    std::cout << "\n" << "GCVS:" << std::endl;
+    for (size_t i=0; i<GCV.gcvs().size(); ++i) std::cout << GCV.gcvs()[i] << std::endl;
+
+    std::cout << "OPTIMUM = " << opt.optimum() << std::endl;
+    std::cout << "VALUE = " << opt.value() << std::endl;
+
     // test correctness
     EXPECT_TRUE(almost_equal(GCV.edfs(), "../data/models/gcv/2D_test3/edfs.mtx"));
     EXPECT_TRUE(almost_equal(GCV.gcvs(), "../data/models/gcv/2D_test3/gcvs.mtx"));
@@ -203,6 +230,15 @@ TEST(gcv_srpde_test, laplacian_semiparametric_samplingatlocations_gridstochastic
     // optimize GCV
     Grid<fdapde::Dynamic> opt;
     opt.optimize(GCV, lambdas);
+
+    std::cout << "EDFS:" << std::endl;
+    for (size_t i=0; i<GCV.edfs().size(); ++i) std::cout << GCV.edfs()[i] << std::endl;
+    std::cout << "\n" << "GCVS:" << std::endl;
+    for (size_t i=0; i<GCV.gcvs().size(); ++i) std::cout << GCV.gcvs()[i] << std::endl;
+
+    std::cout << "OPTIMUM = " << opt.optimum() << std::endl;
+    std::cout << "VALUE = " << opt.value() << std::endl;
+
     // test correctness
     EXPECT_TRUE(almost_equal(GCV.edfs(), "../data/models/gcv/2D_test4/edfs.mtx"));
     EXPECT_TRUE(almost_equal(GCV.gcvs(), "../data/models/gcv/2D_test4/gcvs.mtx"));
@@ -242,6 +278,15 @@ TEST(gcv_srpde_test, costantcoefficientspde_nonparametric_samplingatnodes_gridex
     // optimize GCV
     Grid<fdapde::Dynamic> opt;
     opt.optimize(GCV, lambdas);   // optimize gcv field
+
+    std::cout << "EDFS:" << std::endl;
+    for (size_t i=0; i<GCV.edfs().size(); ++i) std::cout << GCV.edfs()[i] << std::endl;
+    std::cout << "\n" << "GCVS:" << std::endl;
+    for (size_t i=0; i<GCV.gcvs().size(); ++i) std::cout << GCV.gcvs()[i] << std::endl;
+
+    std::cout << "OPTIMUM = " << opt.optimum() << std::endl;
+    std::cout << "VALUE = " << opt.value() << std::endl;
+
     // test correctness
     EXPECT_TRUE(almost_equal(GCV.edfs(), "../data/models/gcv/2D_test5/edfs.mtx"));
     EXPECT_TRUE(almost_equal(GCV.gcvs(), "../data/models/gcv/2D_test5/gcvs.mtx"));
@@ -282,6 +327,15 @@ TEST(gcv_srpde_test, costantcoefficientspde_nonparametric_samplingatnodes_gridst
     // optimize GCV
     Grid<fdapde::Dynamic> opt;
     opt.optimize(GCV, lambdas);   // optimize gcv field
+
+    std::cout << "EDFS:" << std::endl;
+    for (size_t i=0; i<GCV.edfs().size(); ++i) std::cout << GCV.edfs()[i] << std::endl;
+    std::cout << "\n" << "GCVS:" << std::endl;
+    for (size_t i=0; i<GCV.gcvs().size(); ++i) std::cout << GCV.gcvs()[i] << std::endl;
+
+    std::cout << "OPTIMUM = " << opt.optimum() << std::endl;
+    std::cout << "VALUE = " << opt.value() << std::endl;
+
     // test correctness
     EXPECT_TRUE(almost_equal(GCV.edfs(), "../data/models/gcv/2D_test6/edfs.mtx"));
     EXPECT_TRUE(almost_equal(GCV.gcvs(), "../data/models/gcv/2D_test6/gcvs.mtx"));
@@ -376,3 +430,160 @@ TEST(gcv_srpde_test, noncostantcoefficientspde_nonparametric_samplingareal_grids
     EXPECT_TRUE(almost_equal(GCV.gcvs(), "../data/models/gcv/2D_test8/gcvs.mtx"));
 }
 */
+
+// test 9
+//    domain:       unit square [1,1] x [1,1] (coarse)
+//    sampling:     locations = nodes
+//    penalization: simple laplacian
+//    covariates:   no
+//    BC:           no
+//    order FE:     1
+//    GCV optimization: grid exact
+/* TEST(gcv_srpde_test, laplacian_nonparametric_samplingatnodes_strpde_gridexact) {
+    // define domain
+    MeshLoader<Mesh2D> domain("unit_square_coarse");
+    DMatrix<short int> boundary_matrix = DMatrix<short int>::Zero(domain.mesh.n_nodes(), 1);
+    DVector<double> time_mesh;
+    time_mesh.resize(10);
+    for (std::size_t i = 0; i < time_mesh.size(); ++i) time_mesh[i] = 1e-4*(i+1);
+    // import data from files
+    DMatrix<double> y    = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/y.csv");
+    DMatrix<double> IC   = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/IC.csv");
+    // define regularizing PDE
+    std::function<double(SVector<1>)> h_ = [&](SVector<1> ff) -> double {return 1 - ff[0];};
+    NonLinearReaction<2, LagrangianBasis<decltype(domain.mesh),1>::ReferenceBasis> non_linear_reaction(h_);
+    auto L = dt<FEM>() - laplacian<FEM>();
+    PDE<decltype(domain.mesh), decltype(L), DMatrix<double>, FEM, fem_order<1>> problem(domain.mesh, time_mesh, L, boundary_matrix);
+    problem.set_initial_condition(IC);
+    //set forcing
+    auto forcing_expr = [](SVector<2> x, double t) -> double {
+        return -4*std::exp(-t) + std::cos(pi*x[0])*std::cos(pi*x[1])*std::exp(-t)*(-2+2*pi*pi) + (4 + std::cos(pi*x[0])*std::cos(pi*x[0])*std::cos(pi*x[1])*std::cos(pi*x[1]) + 4*std::cos(pi*x[0])*std::cos(pi*x[1]))*std::exp(-2*t);
+    };
+    DMatrix<double> quadrature_nodes = problem.force_quadrature_nodes();
+    DMatrix<double> u(quadrature_nodes.rows(), time_mesh.rows());
+    for (int i = 0; i < quadrature_nodes.rows(); ++i) {
+        for (int j = 0; j < time_mesh.rows(); ++j) { u(i, j) = forcing_expr(quadrature_nodes.row(i), time_mesh(j)); }
+    }
+    problem.set_forcing(u);
+    // set dirichlet bcs
+    auto solution_expr = [](SVector<2> x, double t) -> double {
+        return (std::cos(pi*x[0])*std::cos(pi*x[1]) + 2)*std::exp(-t);
+    };
+    DMatrix<double> nodes_ = problem.dof_coords();
+    DMatrix<double> dirichlet_bc(nodes_.rows(), time_mesh.size());
+    for (int i = 0; i < nodes_.rows(); ++i) {
+        for (int j = 0; j < time_mesh.size(); ++j) {
+            dirichlet_bc(i, j) = solution_expr(nodes_.row(i), time_mesh(j));
+        }
+    }
+    problem.set_dirichlet_bc(dirichlet_bc);
+    // define model
+    STRPDE<SpaceTimeParabolic, fdapde::monolithic> model(problem, Sampling::mesh_nodes);
+    // model.set_spatial_locations(locs);
+    // set model's data
+    BlockFrame<double, int> df;
+    df.stack(OBSERVATIONS_BLK, y);
+    model.set_data(df);
+    // initialize smoothing problem
+    model.init();
+    // define GCV function and grid of \lambda_D and \lambda_T values
+    std::size_t seed = 4564168;
+    // auto GCV = model.gcv<StochasticEDF>(100, seed);
+    auto GCV =  model.gcv<ExactEDF>();
+    std::vector<DVector<double>> lambdas;
+    for (double x = -2.0; x <= 2; x += 0.25) {
+        lambdas.push_back(SVector<2>(std::pow(10, x), 1.0));
+    }
+    // optimize GCV
+    Grid<fdapde::Dynamic> opt;
+    opt.optimize(GCV, lambdas);
+
+    std::cout << "edfs size = " << GCV.edfs().size() << std::endl;
+    std::cout << "EDFS:" << std::endl;
+    for (size_t i=0; i<GCV.edfs().size(); ++i) std::cout << GCV.edfs()[i] << std::endl;
+    std::cout << "\n" << "GCVS:" << std::endl;
+    for (size_t i=0; i<GCV.gcvs().size(); ++i) std::cout << GCV.gcvs()[i] << std::endl;
+
+    std::cout << "OPTIMUM = " << opt.optimum() << std::endl;
+    std::cout << "VALUE = " << opt.value() << std::endl;
+} */
+
+// test 10
+//    domain:       unit square [1,1] x [1,1] (coarse)
+//    sampling:     locations = nodes
+//    penalization: simple laplacian
+//    covariates:   no
+//    BC:           no
+//    order FE:     1
+//    GCV optimization: grid exact
+TEST(gcv_srpde_test, laplacian_nonparametric_samplingatnodes_spacetime_gridexact) {
+    // define domain
+    MeshLoader<Mesh2D> domain("unit_square_coarse");
+    DMatrix<short int> boundary_matrix = DMatrix<short int>::Zero(domain.mesh.n_nodes(), 1);
+    DVector<double> time_mesh;
+    time_mesh.resize(10);
+    for (std::size_t i = 0; i < time_mesh.size(); ++i) time_mesh[i] = 1e-4*(i+1);
+    // import data from files
+    // DMatrix<double> locs = read_csv<double>("../data/models/strpde_nonlinear/2D_test2_coarse_sampling40space/space_locs.csv");
+    DMatrix<double> y    = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/y.csv");
+    DMatrix<double> IC   = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/IC.csv");
+    // define regularizing PDE
+    std::function<double(SVector<1>)> h_ = [&](SVector<1> ff) -> double {return 1 - ff[0];};
+    NonLinearReaction<2, LagrangianBasis<decltype(domain.mesh),1>::ReferenceBasis> non_linear_reaction(h_);
+    auto L = dt<FEM>() - laplacian<FEM>() - non_linear_op<FEM>(non_linear_reaction);
+    PDE<decltype(domain.mesh), decltype(L), DMatrix<double>, FEM, fem_order<1>> problem(domain.mesh, time_mesh, L, h_, boundary_matrix);
+    problem.set_initial_condition(IC);
+    //set forcing
+    auto forcing_expr = [](SVector<2> x, double t) -> double {
+        return -4*std::exp(-t) + std::cos(pi*x[0])*std::cos(pi*x[1])*std::exp(-t)*(-2+2*pi*pi) + (4 + std::cos(pi*x[0])*std::cos(pi*x[0])*std::cos(pi*x[1])*std::cos(pi*x[1]) + 4*std::cos(pi*x[0])*std::cos(pi*x[1]))*std::exp(-2*t);
+    };
+    DMatrix<double> quadrature_nodes = problem.force_quadrature_nodes();
+    DMatrix<double> u(quadrature_nodes.rows(), time_mesh.rows());
+    for (int i = 0; i < quadrature_nodes.rows(); ++i) {
+        for (int j = 0; j < time_mesh.rows(); ++j) { u(i, j) = forcing_expr(quadrature_nodes.row(i), time_mesh(j)); }
+    }
+    problem.set_forcing(u);
+    // set dirichlet bcs
+    auto solution_expr = [](SVector<2> x, double t) -> double {
+        return (std::cos(pi*x[0])*std::cos(pi*x[1]) + 2)*std::exp(-t);
+    };
+    DMatrix<double> nodes_ = problem.dof_coords();
+    DMatrix<double> dirichlet_bc(nodes_.rows(), time_mesh.size());
+    for (int i = 0; i < nodes_.rows(); ++i) {
+        for (int j = 0; j < time_mesh.size(); ++j) {
+            dirichlet_bc(i, j) = solution_expr(nodes_.row(i), time_mesh(j));
+        }
+    }
+    problem.set_dirichlet_bc(dirichlet_bc);
+    // define model
+    STRPDE_NonLinear<SpaceTimeParabolic, fdapde::monolithic> model(problem, Sampling::mesh_nodes);
+    // model.set_spatial_locations(locs);
+    // set model's data
+    BlockFrame<double, int> df;
+    df.stack(OBSERVATIONS_BLK, y);
+    model.set_data(df);
+    // set parameters for iterative method
+    model.set_tolerance(1e-5);
+    // model.set_max_iter(50);
+    // initialize smoothing problem
+    model.init();
+    // define GCV function and grid of \lambda_D and \lambda_T values
+    std::size_t seed = 4564168;
+    // auto GCV = model.gcv<StochasticEDF>(100, seed);
+    auto GCV =  model.gcv<ExactEDF>();
+    std::vector<DVector<double>> lambdas;
+    for (double x = -2.0; x <= 2; x += 0.25) {
+        lambdas.push_back(SVector<2>(std::pow(10, x), 1.0));
+    }
+    // optimize GCV
+    Grid<fdapde::Dynamic> opt;
+    opt.optimize(GCV, lambdas);
+
+    std::cout << "EDFS:" << std::endl;
+    for (size_t i=0; i<GCV.edfs().size(); ++i) std::cout << GCV.edfs()[i] << std::endl;
+    std::cout << "\n" << "GCVS:" << std::endl;
+    for (size_t i=0; i<GCV.gcvs().size(); ++i) std::cout << GCV.gcvs()[i] << std::endl;
+
+    std::cout << "OPTIMUM = " << opt.optimum() << std::endl;
+    std::cout << "VALUE = " << opt.value() << std::endl;
+}
