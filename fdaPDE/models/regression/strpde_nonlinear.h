@@ -69,7 +69,10 @@ class STRPDE_NonLinear<SpaceTimeParabolic, monolithic> :
     STRPDE_NonLinear() = default;
     STRPDE_NonLinear(const pde_ptr& pde, Sampling s) : Base(pde, s) {};
 
-    void init_model() { return; } // update model object in case of **structural** changes in its definition
+    void init_model() { 
+        if (!is_empty(pde_.dirichlet_boundary_data())) matrix_bc_Dirichlet_ = pde_.matrix_bc_Dirichlet();
+        return; 
+    } // update model object in case of **structural** changes in its definition
     void update_to_weights() {   // update model object in case of changes in the weights matrix
         // adjust north-west block of matrix A_ and factorize
         A_.block(0, 0) = -PsiTD() * W() * Psi();
@@ -87,14 +90,10 @@ class STRPDE_NonLinear<SpaceTimeParabolic, monolithic> :
         A_ = SparseBlockMatrix<double, 2, 2>(
             -PsiTD() * W() * Psi(), lambda_D() * (R1_step_kronecker(f_prev) + R0_robin() + lambda_T() * L_).transpose(),
             lambda_D() * (R1_step_kronecker(f_prev) + R0_robin() + lambda_T() * L_), lambda_D() * R0());
-        b_.resize(A_.rows());
-        set_dirichlet_bc(A_, b_);
-        // cache system matrix for reuse
-        invA_.compute(A_);
 
         // start Newton iteration
         for (size_t i = 0; i < max_iter_; ++i) {
-            std::cout << "iteration = " << i << std::endl;
+            // std::cout << "iteration = " << i << std::endl;
             // prepare rhs of linear system
             b_.resize(A_.rows());
             b_.block(A_.rows() / 2, 0, A_.rows() / 2, 1) = lambda_D() * (u() + u_neumann() + u_robin());
@@ -103,7 +102,9 @@ class STRPDE_NonLinear<SpaceTimeParabolic, monolithic> :
                 // update rhs of STR-PDE linear system
                 b_.block(0, 0, A_.rows() / 2, 1) = -PsiTD() * W() * y();
                 // set dirichlet bcs
-                set_dirichlet_bc(b_);
+                set_dirichlet_bc(A_, b_);
+                // cache system matrix for reuse
+                invA_.compute(A_);
                 // solve linear system A_*x = b_
                 sol = invA_.solve(b_);
                 f_ = sol.head(A_.rows() / 2);
@@ -111,7 +112,9 @@ class STRPDE_NonLinear<SpaceTimeParabolic, monolithic> :
                 // rhs of STR-PDE linear system
                 b_.block(0, 0, A_.rows() / 2, 1) = -PsiTD() * lmbQ(y());   // -\Psi^T*D*Q*z
                 // set dirichlet bcs
-                set_dirichlet_bc(b_);
+                set_dirichlet_bc(A_, b_);
+                // cache system matrix for reuse
+                invA_.compute(A_);
                 // matrices U and V for application of woodbury formula
                 U_ = DMatrix<double>::Zero(A_.rows(), q());
                 U_.block(0, 0, A_.rows() / 2, q()) = PsiTD() * W() * X();
@@ -130,13 +133,16 @@ class STRPDE_NonLinear<SpaceTimeParabolic, monolithic> :
             A_ = SparseBlockMatrix<double, 2, 2>(
                 -PsiTD() * W() * Psi(), lambda_D() * (R1_step_kronecker(f_) + R0_robin() + lambda_T() * L_).transpose(),
                 lambda_D() * (R1_step_kronecker(f_) + R0_robin() + lambda_T() * L_), lambda_D() * R0());
-            set_dirichlet_bc(A_, b_);
-            invA_.compute(A_);
 
             // Check convergence to stop early
             auto incr = f_ - f_prev;
-            if (incr.norm() < tol_) break;
-            std::cout << "incr = " << incr.norm() << std::endl;
+            if (incr.norm() < tol_) {
+                b_.resize(A_.rows());
+                set_dirichlet_bc(A_, b_);
+                invA_.compute(A_);
+                break;
+            }
+            // std::cout << "incr = " << incr.norm() << std::endl;
 
             // update solution at the previou Fixed-Point step
             f_prev = f_;
@@ -211,7 +217,7 @@ class STRPDE_NonLinear<SpaceTimeParabolic, iterative> :
     // getters
     const SpMatrix<double>& R0_it() const { return pde_.mass(); }    // mass matrix in space used in one iteration
     const SpMatrix<double>& R1_it() const { return pde_.stiff(); }   // discretization of differential operator L used in one iteration
-    const SpMatrix<double>& R0_robin_it() const { return pde_.mass_robin(); }   // mass bpundary matrix due to RObin bcs used in one iteration
+    const SpMatrix<double>& R0_robin_it() const { return pde_.mass_robin(); }   // mass boundary matrix due to RObin bcs used in one iteration
     std::size_t n_basis() const { return pde_.n_dofs(); }         // number of basis functions
     const SparseBlockMatrix<double, 2, 2>& A() const { return A_; }
     const fdapde::SparseLU<SpMatrix<double>>& invA() const { return invA_; }
@@ -220,7 +226,10 @@ class STRPDE_NonLinear<SpaceTimeParabolic, iterative> :
         return (op1 - op2).squaredNorm();
     }
 
-    void init_model() { return; };
+    void init_model() { 
+        if (!is_empty(pde_.dirichlet_boundary_data())) matrix_bc_Dirichlet_ = pde_.matrix_bc_Dirichlet();
+        return; 
+    };
     void solve() {
         fdapde_assert(y().rows() != 0);
 
@@ -288,8 +297,8 @@ class STRPDE_NonLinear<SpaceTimeParabolic, iterative> :
         // internal iteration variables
         BlockVector<double> f_new(n_temporal_locs(), n_spatial_basis()), g_new(n_temporal_locs(), n_spatial_basis());
         // iterative scheme for minimization of functional J
-        while (i < max_iter_ && std::abs((Jnew - Jold) / Jnew) > tolJ_ && incr > tolf_) {
-            std::cout << "Iteration " << i << std::endl;
+        while (i < max_iter_ && (std::abs((Jnew - Jold) / Jnew) > tolJ_ || incr > tolf_)) {
+            // std::cout << "Iteration " << i << std::endl;
             A_ = SparseBlockMatrix<double, 2, 2>(
                 PsiTD_it * Psi_it,   lambda_D() * (R1_step(s_) + R0_robin_it()).transpose(),
 	            lambda_D() * (R1_step(s_) + R0_robin_it()), -lambda_D() * R0_it()           );
@@ -340,7 +349,7 @@ class STRPDE_NonLinear<SpaceTimeParabolic, iterative> :
             f_old = f_new;
             g_old = g_new;
             Jnew = J(f_old.get(), g_old.get());
-            std::cout << "J = " << Jnew << std::endl;
+            // std::cout << "J = " << Jnew << std::endl;
             i++;
         }
         // store solution
@@ -432,7 +441,10 @@ class STRPDE_NonLinear<SpaceTimeParabolic, iterative_EI> :
         return (op1 - op2).squaredNorm();
     }
 
-    void init_model() { return; };
+    void init_model() { 
+        if (!is_empty(pde_.dirichlet_boundary_data())) matrix_bc_Dirichlet_ = pde_.matrix_bc_Dirichlet();
+        return; 
+    };
     void solve() {
         fdapde_assert(y().rows() != 0);
 
@@ -461,7 +473,7 @@ class STRPDE_NonLinear<SpaceTimeParabolic, iterative_EI> :
         
             // internal loop to solve the nonlinearity with a fixed-point method
             for (std::size_t j = 1; j < max_iter_nl_; ++j) {
-                std::cout << "iteration internal loop t= " << t << ": " << j << std::endl;
+                // std::cout << "iteration internal loop t= " << t << ": " << j << std::endl;
                 // re-define matrix A
                 A_ = SparseBlockMatrix<double, 2, 2>(
                     PsiTD_it * Psi_it,   lambda_D() * (R1_step(f_prev) + R0_robin_it()).transpose() ,
@@ -510,14 +522,14 @@ class STRPDE_NonLinear<SpaceTimeParabolic, iterative_EI> :
         // internal iteration variables
         BlockVector<double> f_new(n_temporal_locs(), n_spatial_basis()), g_new(n_temporal_locs(), n_spatial_basis());
         // iterative scheme for minimization of functional J
-        while (i < max_iter_ && std::abs((Jnew - Jold) / Jnew) > tolJ_ && incr > tolf_) {
-            std::cout << "Iteration " << i << std::endl;
+        while (i < max_iter_ && (std::abs((Jnew - Jold) / Jnew) > tolJ_ || incr > tolf_)) {
+            // std::cout << "Iteration " << i << std::endl;
             
             // solve nonlinear system
             // internal loop to solve the nonlinearity with a fixed-point method
             f_prev = s_;
             for (std::size_t j = 1; j < max_iter_nl_; ++j) {
-                std::cout << "iteration internal loop t= 0 : " << j << std::endl;
+                // std::cout << "iteration internal loop t= 0 : " << j << std::endl;
                 // re-define matrix A
                 A_ = SparseBlockMatrix<double, 2, 2>(
                     PsiTD_it * Psi_it,   lambda_D() * (R1_step(f_prev) + R0_robin_it()).transpose(),
@@ -542,7 +554,7 @@ class STRPDE_NonLinear<SpaceTimeParabolic, iterative_EI> :
                 f_prev = f_new(t-1);   
                 //solve nonlinear system
                 for (std::size_t j = 1; j < max_iter_nl_; ++j) {
-                    std::cout << "iteration internal loop t= " << t << ": " << j << std::endl;
+                    // std::cout << "iteration internal loop t= " << t << ": " << j << std::endl;
                     // re-compute A_
                     A_ = SparseBlockMatrix<double, 2, 2>(
                         PsiTD_it * Psi_it,   lambda_D() * (R1_step(f_prev) + R0_robin_it()).transpose(),
@@ -568,7 +580,7 @@ class STRPDE_NonLinear<SpaceTimeParabolic, iterative_EI> :
             //solve nonlinear system
             f_prev = f_new(n_temporal_locs()-2);
             for (std::size_t j = 1; j < max_iter_nl_; ++j) {
-                std::cout << "iteration internal loop t= " << n_temporal_locs()-1 << ": " << j << std::endl;
+                // std::cout << "iteration internal loop t= " << n_temporal_locs()-1 << ": " << j << std::endl;
                 // re-compute A_
                 A_ = SparseBlockMatrix<double, 2, 2>(
                     PsiTD_it * Psi_it,   lambda_D() * (R1_step(f_prev) + R0_robin_it()).transpose(),
@@ -595,7 +607,7 @@ class STRPDE_NonLinear<SpaceTimeParabolic, iterative_EI> :
             f_old = f_new;
             g_old = g_new;
             Jnew = J(f_old.get(), g_old.get());
-            std::cout << "J = " << Jnew << std::endl;
+            // std::cout << "J = " << Jnew << std::endl;
             i++;
         }
 

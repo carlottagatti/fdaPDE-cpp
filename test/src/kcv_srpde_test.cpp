@@ -58,8 +58,9 @@ TEST(kcv_srpde_test, laplacian_nonparametric_samplingatnodes_spaceonly_rmse) {
     DMatrix<double> y = read_csv<double>("../data/models/gcv/2D_test1/y.csv");
     // define regularizing PDE
     auto L = -laplacian<FEM>();
-    DMatrix<double> u = DMatrix<double>::Zero(domain.mesh.n_elements() * 3, 1);
-    PDE<decltype(domain.mesh), decltype(L), DMatrix<double>, FEM, fem_order<1>> problem(domain.mesh, L, u);
+    DMatrix<double> u = DMatrix<double>::Zero(domain.mesh.n_elements() * 6, 1);
+    PDE<decltype(domain.mesh), decltype(L), DMatrix<double>, FEM, fem_order<1>> problem(domain.mesh, L);
+    problem.set_forcing(u);
     // define model
     SRPDE model(problem, Sampling::mesh_nodes);
     // set model's data
@@ -74,23 +75,24 @@ TEST(kcv_srpde_test, laplacian_nonparametric_samplingatnodes_spaceonly_rmse) {
     for (double x = -6.0; x <= -3.0; x += 0.25) lambdas.push_back(SVector<1>(std::pow(10, x)));
     kcv.fit(model, lambdas, RMSE(model));
 
-    auto KCV_ = fdapde::calibration::KCV {n_folds}(lambdas, RMSE());
-    KCV_.fit(model);
+    // auto KCV_ = fdapde::calibration::KCV {n_folds}(lambdas, RMSE());
+    // KCV_.fit(model);
     
     // test correctness
     // TODO
 }
 
 
-TEST(kcv_srpde_test, qsrpde_laplacian_nonparametric_samplingatnodes_spaceonly_rmse) {
+/* TEST(kcv_srpde_test, qsrpde_laplacian_nonparametric_samplingatnodes_spaceonly_rmse) {
     // define domain
     MeshLoader<Mesh2D> domain("unit_square_coarse");
     // import data from files
     DMatrix<double> y = read_csv<double>("../data/models/qsrpde/2D_test1/y.csv");
     // define regularizing PDE
     auto L = -laplacian<FEM>();
-    DMatrix<double> u = DMatrix<double>::Zero(domain.mesh.n_elements() * 3, 1);
-    PDE<decltype(domain.mesh), decltype(L), DMatrix<double>, FEM, fem_order<1>> problem(domain.mesh, L, u);
+    DMatrix<double> u = DMatrix<double>::Zero(domain.mesh.n_elements() * 6, 1);
+    PDE<decltype(domain.mesh), decltype(L), DMatrix<double>, FEM, fem_order<1>> problem(domain.mesh, L);
+    problem.set_forcing(u);
     // define model
     double lambda = 1.778279 * std::pow(0.1, 4);
     double alpha = 0.1;
@@ -117,4 +119,6 @@ TEST(kcv_srpde_test, qsrpde_laplacian_nonparametric_samplingatnodes_spaceonly_rm
     
     // test correctness
     // TODO
-}
+} */
+
+

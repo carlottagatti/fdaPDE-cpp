@@ -40,6 +40,7 @@ class SpaceTimeSeparableBase : public SpaceTimeBase<Model, SpaceTimeSeparable> {
     DVector<double> time_locs_;     // time instants t_1, ..., t_m
     mutable SpMatrix<double> PD_;   // discretization of space regularization: (R1^T*R0^{-1}*R1) \kron P0
     mutable SpMatrix<double> PT_;   // discretization of time regularization:  (R0 \kron P1)
+    DMatrix<int> matrix_bc_Dirichlet_; // matrix that has 1 if a dof is Dirichlet and 0 otherwise
    public:
     using Base = SpaceTimeBase<Model, SpaceTimeSeparable>;
     static constexpr int n_lambda = n_smoothing_parameters<SpaceTimeSeparable>::value;
@@ -112,6 +113,7 @@ class SpaceTimeSeparableBase : public SpaceTimeBase<Model, SpaceTimeSeparable> {
     // discretized penalty P = \lambda_D*(P0 \kron (R1^T*R0^{-1}*R1)) + \lambda_T*(P1 \kron R0)
     auto P(const SVector<n_lambda>& lambda) const { return lambda[0] * PD() + lambda[1] * PT(); }
     auto P() const { return P(Base::lambda()); }
+    const DMatrix<int>& matrix_bc_Dirichlet() const { return matrix_bc_Dirichlet_; }
 
     // destructor
     virtual ~SpaceTimeSeparableBase() = default;

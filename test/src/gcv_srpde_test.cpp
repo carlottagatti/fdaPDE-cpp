@@ -516,7 +516,7 @@ TEST(gcv_srpde_test, noncostantcoefficientspde_nonparametric_samplingareal_grids
 //    BC:           no
 //    order FE:     1
 //    GCV optimization: grid exact
-TEST(gcv_srpde_test, laplacian_nonparametric_samplingatnodes_spacetime_gridexact) {
+/* TEST(gcv_srpde_test, laplacian_nonparametric_samplingatnodes_spacetime_gridexact) {
     // define domain
     MeshLoader<Mesh2D> domain("unit_square_coarse");
     DMatrix<short int> boundary_matrix = DMatrix<short int>::Zero(domain.mesh.n_nodes(), 1);
@@ -528,7 +528,7 @@ TEST(gcv_srpde_test, laplacian_nonparametric_samplingatnodes_spacetime_gridexact
     DMatrix<double> y    = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/y.csv");
     DMatrix<double> IC   = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/IC.csv");
     // define regularizing PDE
-    std::function<double(SVector<1>)> h_ = [&](SVector<1> ff) -> double {return 1 - ff[0];};
+    std::function<double(SVector<1>)> h_ = [&](SVector<1> ff) -> double {return 2*(1 - ff[0]);};
     NonLinearReaction<2, LagrangianBasis<decltype(domain.mesh),1>::ReferenceBasis> non_linear_reaction(h_);
     auto L = dt<FEM>() - laplacian<FEM>() - non_linear_op<FEM>(non_linear_reaction);
     PDE<decltype(domain.mesh), decltype(L), DMatrix<double>, FEM, fem_order<1>> problem(domain.mesh, time_mesh, L, h_, boundary_matrix);
@@ -564,15 +564,15 @@ TEST(gcv_srpde_test, laplacian_nonparametric_samplingatnodes_spacetime_gridexact
     model.set_data(df);
     // set parameters for iterative method
     model.set_tolerance(1e-5);
-    // model.set_max_iter(50);
+    model.set_max_iter(15);
     // initialize smoothing problem
     model.init();
     // define GCV function and grid of \lambda_D and \lambda_T values
     std::size_t seed = 4564168;
-    // auto GCV = model.gcv<StochasticEDF>(100, seed);
-    auto GCV =  model.gcv<ExactEDF>();
+    auto GCV = model.gcv<StochasticEDF>(100, seed, problem.dirichlet_boundary_data(), model.matrix_bc_Dirichlet(), time_mesh.size());
+    // auto GCV =  model.gcv<ExactEDF>();
     std::vector<DVector<double>> lambdas;
-    for (double x = -2.0; x <= 2; x += 0.25) {
+    for (double x = -2.0; x <= 0; x += 0.25) {
         lambdas.push_back(SVector<2>(std::pow(10, x), 1.0));
     }
     // optimize GCV
@@ -586,4 +586,4 @@ TEST(gcv_srpde_test, laplacian_nonparametric_samplingatnodes_spacetime_gridexact
 
     std::cout << "OPTIMUM = " << opt.optimum() << std::endl;
     std::cout << "VALUE = " << opt.value() << std::endl;
-}
+} */

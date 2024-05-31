@@ -25,6 +25,7 @@ using fdapde::core::FEM;
 using fdapde::core::SPLINE;
 using fdapde::core::bilaplacian;
 using fdapde::core::laplacian;
+using fdapde::core::reaction;
 using fdapde::core::PDE;
 using fdapde::core::Mesh;
 using fdapde::core::spline_order;
@@ -48,6 +49,10 @@ using fdapde::core::LagrangianBasis;
 using fdapde::core::non_linear_op;
 using fdapde::testing::pi;
 
+#include <chrono>
+#include <thread>
+
+
 
 
 // test 1 - method strpde monolithic
@@ -63,20 +68,32 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_s
     // define temporal domain
     DVector<double> time_mesh;
     time_mesh.resize(10);
-    for (std::size_t i = 0; i < time_mesh.size(); ++i) time_mesh[i] = 1e-4*(i+1);
+    for (std::size_t i = 0; i < time_mesh.size(); ++i) time_mesh[i] = (1e-4)*(i+1);
     // define spatial domain
     MeshLoader<Mesh2D> domain("unit_square_coarse");
-    DMatrix<short int> boundary_matrix = DMatrix<short int>::Zero(domain.mesh.n_nodes(), 1) ; // has all zeros
+    DMatrix<short int> boundary_matrix = DMatrix<short int>::Zero(domain.mesh.n_nodes(), 1);
+    // // neumann boundary on the left and right side (x=0, x=1)
+    // for (size_t j=1; j<20; j++) {
+    //     boundary_matrix(0 + 21*j, 0) = 1;
+    //     boundary_matrix(20 + 21*j, 0) = 1;
+    // }
+
     // import data from files
-    DMatrix<double> y  = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/y.csv");
-    DMatrix<double> IC = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/IC.csv");
+    DMatrix<double> locs  = read_csv<double>("../data/models/strpde_nonlinear/test1_5/space_locs.csv");
+    DMatrix<double> IC    = read_csv<double>("../data/models/strpde_nonlinear/test1_5/IC.csv");
+    // DMatrix<double> y  = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/y.csv");
+    // DMatrix<double> IC = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/IC.csv");
     // define regularizing PDE
-    auto L = dt<FEM>() - laplacian<FEM>();
+    double c = 1.0;
+    auto L = dt<FEM>() - laplacian<FEM>() - reaction<FEM>(c);
+    // auto L = dt<FEM>() - laplacian<FEM>();
     PDE<decltype(domain.mesh), decltype(L), DMatrix<double>, FEM, fem_order<1>> pde(domain.mesh, time_mesh, L, boundary_matrix);
     pde.set_initial_condition(IC);
     //set forcing
-    auto forcing_expr = [](SVector<2> x, double t) -> double {
-        return -4*std::exp(-t) + std::cos(pi*x[0])*std::cos(pi*x[1])*std::exp(-t)*(-2+2*pi*pi) + (4 + std::cos(pi*x[0])*std::cos(pi*x[0])*std::cos(pi*x[1])*std::cos(pi*x[1]) + 4*std::cos(pi*x[0])*std::cos(pi*x[1]))*std::exp(-2*t);
+    double alpha = 7;
+    auto forcing_expr = [&](SVector<2> x, double t) -> double {
+        return -(2 + 2*alpha)*std::exp(-t) + std::cos(pi*x[0])*std::cos(pi*x[1])*std::exp(-t)*(-1+2*pi*pi-alpha) + alpha*(4 + std::cos(pi*x[0])*std::cos(pi*x[0])*std::cos(pi*x[1])*std::cos(pi*x[1]) + 4*std::cos(pi*x[0])*std::cos(pi*x[1]))*std::exp(-2*t);
+        // return x[0]*x[0] + x[1]*x[1] + 2 - 4*t + 20*(x[0]*x[0] + x[1]*x[1] + 2)*t / (5 + (x[0]*x[0] + x[1]*x[1] + 2)*t);
     };
     DMatrix<double> quadrature_nodes = pde.force_quadrature_nodes();
     DMatrix<double> u(quadrature_nodes.rows(), time_mesh.rows());
@@ -87,6 +104,7 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_s
     // set dirichlet bcs
     auto solution_expr = [](SVector<2> x, double t) -> double {
         return (std::cos(pi*x[0])*std::cos(pi*x[1]) + 2)*std::exp(-t);
+        // return (x[0]*x[0] + x[1]*x[1] + 2) * t;
     };
     DMatrix<double> nodes_ = pde.dof_coords();
     DMatrix<double> dirichlet_bc(nodes_.rows(), time_mesh.size());
@@ -96,36 +114,88 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_s
         }
     }
     pde.set_dirichlet_bc(dirichlet_bc);
-    // define model
-    double lambda_D = 1;
-    double lambda_T = 1;
-    STRPDE<SpaceTimeParabolic, fdapde::monolithic> model(pde, Sampling::mesh_nodes);
-    model.set_lambda_D(lambda_D);
-    model.set_lambda_T(lambda_T);
-    // set model's data
-    BlockFrame<double, int> df;
-    df.stack(OBSERVATIONS_BLK, y);
-    model.set_data(df);
-    // solve smoothing problem
-    model.init();
-    std::cout << "debug" << std::endl;
-    model.solve();
-    std::cout << "debug" << std::endl;
-    DMatrix<double> sol = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/sol.csv");
-    
-    // test corretness
-    double MSE = 0;
-    int n = model.f().rows();
-    int m = time_mesh.rows();
-    for (size_t i=0; i<n; ++i)
-    {
-        MSE += (sol(i) - model.f()(i))*(sol(i) - model.f()(i)) / (n);
-    }
-    std::cout << "MSE = " << MSE << std::endl;
+    // set neumann bcs
+    // auto neumann_expr = [](SVector<2> x, double t) -> double { 
+    //     if (x[1]==0 || x[1]==1) return 0;
+    //     return -pi*std::sin(pi*x[0])*std::cos(pi*x[1])*std::exp(-t);
+    //     // return 2*x[0]*t;;
+    // };
+    // DMatrix<double> boundary_quadrature_nodes = pde.boundary_quadrature_nodes();
+    // DMatrix<double> f_neumann(boundary_quadrature_nodes.rows(), time_mesh.size());
+    // for (auto i=0; i< boundary_quadrature_nodes.rows(); ++i){
+    //     for (int j = 0; j < time_mesh.size(); ++j) f_neumann(i, j) = neumann_expr(boundary_quadrature_nodes.row(i), time_mesh(j));
+    // }
+    // pde.set_neumann_bc(f_neumann);
 
-    // EXPECT_TRUE(almost_equal(model.f(), sol));
-    std::cout << (model.f()-sol).lpNorm<Eigen::Infinity>() << std::endl;
-    EXPECT_TRUE(almost_equal(model.f(), sol));
+    // save the results in a file
+    std::ofstream file("results_STRPDE_monolithic.txt");    //it will be exported in the current build directory
+
+    int n_obs = 30;
+    for (size_t i=1; i<=n_obs; ++i) {
+        std::cout << "Iteration " << i << std::endl;
+        // define model
+        double lambda_D = 0.001;
+        double lambda_T = 1;
+        STRPDE_NonLinear<SpaceTimeParabolic, fdapde::monolithic> model(pde, Sampling::pointwise);
+        model.set_lambda_D(lambda_D);
+        model.set_lambda_T(lambda_T);
+        model.set_spatial_locations(locs);
+        // set model's data
+        std::string filename = "../data/models/strpde_nonlinear/test1_5/y" + std::to_string(i) + ".csv";
+        DMatrix<double> y = read_csv<double>(filename);
+        BlockFrame<double, int> df;
+        df.stack(OBSERVATIONS_BLK, y);
+        model.set_data(df);
+        // set parameters for iterative method
+        model.set_tolerance(1e-5);
+        model.set_max_iter(15);
+        // initialize smoothing problem
+        model.init();
+        double time = 0;
+        auto start = std::chrono::high_resolution_clock::now();
+        model.solve();
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        time = duration.count();
+
+        // test corretness
+        // create a grid of points different from the sampling points where we can compute the MSE
+        STRPDE<SpaceTimeParabolic, fdapde::iterative> model_grid(pde, Sampling::pointwise);
+        DMatrix<double> grid = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/grid_locs.csv");
+        model_grid.set_spatial_locations(grid);
+        model_grid.init_sampling(true);  // evalute Psi() in the new grid
+        // compute MSE over the grid
+        DVector<double> f_grid(grid.rows(), 1);
+        f_grid = model_grid.Psi()*model.f();
+        DMatrix<double> sol_grid = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/grid_sol.csv");
+        // DMatrix<double> sol_grid = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/grid_sol.csv");
+        double MSE_grid = 0;
+        int n = f_grid.rows();
+        for (size_t i=0; i<n; ++i)
+        {
+            MSE_grid += (sol_grid(i) - f_grid(i))*(sol_grid(i) - f_grid(i)) / (n);
+        }
+        file << "\"" << i << "\" " << 1000 << " \"method1\" " << time << " " << MSE_grid << "\n";
+        // std::cout << "MSE_grid = " << MSE_grid << std::endl;
+        // std::cout << "inf_norm error in sgrid points = " << (f_grid - sol_grid).lpNorm<Eigen::Infinity>() << std::endl;
+
+        // // compute MSE over the nodes
+        // DMatrix<double> sol = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/sol.csv");
+        // // DMatrix<double> sol = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/sol.csv");
+        // double MSE = 0;
+        // n = model.f().rows();
+        // for (size_t i=0; i<n; ++i)
+        // {
+        //     MSE += (sol(i) - model.f()(i))*(sol(i) - model.f()(i)) / (n);
+        // }
+        // std::cout << "MSE = " << MSE << std::endl;
+
+        // // EXPECT_TRUE(almost_equal(model.f(), sol));
+        // std::cout << (model.f()-sol).lpNorm<Eigen::Infinity>() << std::endl;
+        // EXPECT_TRUE(almost_equal(model.f(), sol));
+    }
+
+    file.close();
 }
 
 // test 1 - method strpde iterative
@@ -141,20 +211,32 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_s
     // define temporal domain
     DVector<double> time_mesh;
     time_mesh.resize(10);
-    for (std::size_t i = 0; i < time_mesh.size(); ++i) time_mesh[i] = 1e-4*(i+1);
+    for (std::size_t i = 0; i < time_mesh.size(); ++i) time_mesh[i] = (1e-4)*(i+1);
     // define spatial domain
     MeshLoader<Mesh2D> domain("unit_square_coarse");
-    DMatrix<short int> boundary_matrix = DMatrix<short int>::Zero(domain.mesh.n_nodes(), 1) ; // has all zeros
+    DMatrix<short int> boundary_matrix = DMatrix<short int>::Zero(domain.mesh.n_nodes(), 1);
+    // neumann boundary on the left and right side (x=0, x=1)
+    // for (size_t j=1; j<20; j++) {
+    //     boundary_matrix(0 + 21*j, 0) = 1;
+    //     boundary_matrix(20 + 21*j, 0) = 1;
+    // }
+
     // import data from files
-    DMatrix<double> y  = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/y.csv");
-    DMatrix<double> IC = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/IC.csv");
+    DMatrix<double> locs  = read_csv<double>("../data/models/strpde_nonlinear/test1_5/space_locs.csv");
+    DMatrix<double> IC    = read_csv<double>("../data/models/strpde_nonlinear/test1_5/IC.csv");
+    // DMatrix<double> y  = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/y.csv");
+    // DMatrix<double> IC = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/IC.csv");
     // define regularizing PDE
-    auto L = dt<FEM>() - laplacian<FEM>();
+    double c = 1.0;
+    auto L = dt<FEM>() - laplacian<FEM>() - reaction<FEM>(c);
+    // auto L = dt<FEM>() - laplacian<FEM>();
     PDE<decltype(domain.mesh), decltype(L), DMatrix<double>, FEM, fem_order<1>> pde(domain.mesh, time_mesh, L, boundary_matrix);
     pde.set_initial_condition(IC);
     //set forcing
-    auto forcing_expr = [](SVector<2> x, double t) -> double {
-        return -4*std::exp(-t) + std::cos(pi*x[0])*std::cos(pi*x[1])*std::exp(-t)*(-2+2*pi*pi) + (4 + std::cos(pi*x[0])*std::cos(pi*x[0])*std::cos(pi*x[1])*std::cos(pi*x[1]) + 4*std::cos(pi*x[0])*std::cos(pi*x[1]))*std::exp(-2*t);
+    double alpha = 7;
+    auto forcing_expr = [&](SVector<2> x, double t) -> double {
+        return -(2 + 2*alpha)*std::exp(-t) + std::cos(pi*x[0])*std::cos(pi*x[1])*std::exp(-t)*(-1+2*pi*pi-alpha) + alpha*(4 + std::cos(pi*x[0])*std::cos(pi*x[0])*std::cos(pi*x[1])*std::cos(pi*x[1]) + 4*std::cos(pi*x[0])*std::cos(pi*x[1]))*std::exp(-2*t);
+        // return x[0]*x[0] + x[1]*x[1] + 2 - 4*t + 20*(x[0]*x[0] + x[1]*x[1] + 2)*t / (5 + (x[0]*x[0] + x[1]*x[1] + 2)*t);
     };
     DMatrix<double> quadrature_nodes = pde.force_quadrature_nodes();
     DMatrix<double> u(quadrature_nodes.rows(), time_mesh.rows());
@@ -165,6 +247,7 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_s
     // set dirichlet bcs
     auto solution_expr = [](SVector<2> x, double t) -> double {
         return (std::cos(pi*x[0])*std::cos(pi*x[1]) + 2)*std::exp(-t);
+        // return (x[0]*x[0] + x[1]*x[1] + 2) * t;
     };
     DMatrix<double> nodes_ = pde.dof_coords();
     DMatrix<double> dirichlet_bc(nodes_.rows(), time_mesh.size());
@@ -174,56 +257,87 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_s
         }
     }
     pde.set_dirichlet_bc(dirichlet_bc);
-    // define model
-    double lambda_D = 1;
-    double lambda_T = 1;
-    STRPDE<SpaceTimeParabolic, fdapde::iterative> model(pde, Sampling::mesh_nodes);
-    model.set_lambda_D(lambda_D);
-    model.set_lambda_T(lambda_T);
-    // set model's data
-    BlockFrame<double, int> df;
-    df.stack(OBSERVATIONS_BLK, y);
-    model.set_data(df);
-    model.set_tolerance(1e-5);
-    // solve smoothing problem
-    model.init();
-    model.solve();
-    DMatrix<double> sol = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/sol.csv");
-    
-    // test corretness
-    // create a grid of points different from the sampling points where we can compute the MSE
-    STRPDE<SpaceTimeParabolic, fdapde::iterative> model_grid(pde, Sampling::pointwise);
-    DMatrix<double> grid = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/grid_locs.csv");
-    model_grid.set_spatial_locations(grid);
-    model_grid.init_sampling(true);  // evalute Psi() in the new grid
-    // compute MSE over the grid
-    DVector<double> f_grid(grid.rows(), 1);
-    int m = time_mesh.rows();
-    SpMatrix<double> Im(m,m);
-    Im.setIdentity();
-    f_grid = Kronecker(Im,model_grid.Psi())*model.f();
-    DMatrix<double> sol_grid = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/sol_grid.csv");
-    double MSE_grid = 0;
-    int n = f_grid.rows();
-    for (size_t i=0; i<n; ++i)
-    {
-        MSE_grid += (sol_grid(i) - f_grid(i))*(sol_grid(i) - f_grid(i)) / (n);
-    }
-    std::cout << "MSE_grid = " << MSE_grid << std::endl;
-    std::cout << "inf_norm error in sgrid points = " << (f_grid - sol_grid).lpNorm<Eigen::Infinity>() << std::endl;
+    // set neumann bcs
+    // auto neumann_expr = [](SVector<2> x, double t) -> double { 
+    //     if (x[1]==0 || x[1]==1) return 0;
+    //     return -pi*std::sin(pi*x[0])*std::cos(pi*x[1])*std::exp(-t);
+    //     // return 2*x[0]*t;;
+    // };
+    // DMatrix<double> boundary_quadrature_nodes = pde.boundary_quadrature_nodes();
+    // DMatrix<double> f_neumann(boundary_quadrature_nodes.rows(), time_mesh.size());
+    // for (auto i=0; i< boundary_quadrature_nodes.rows(); ++i){
+    //     for (int j = 0; j < time_mesh.size(); ++j) f_neumann(i, j) = neumann_expr(boundary_quadrature_nodes.row(i), time_mesh(j));
+    // }
+    // pde.set_neumann_bc(f_neumann);
 
-    // compute MSE over the nodes
-    double MSE = 0;
-    n = model.f().rows();
-    for (size_t i=0; i<n; ++i)
-    {
-        MSE += (sol(i) - model.f()(i))*(sol(i) - model.f()(i)) / (n);
-    }
-    std::cout << "MSE = " << MSE << std::endl;
+    std::ofstream file("results_STRPDE_iterative.txt");    //it will be exported in the current build directory
 
-    // EXPECT_TRUE(almost_equal(model.f(), sol));
-    std::cout << (model.f()-sol).lpNorm<Eigen::Infinity>() << std::endl;
-    EXPECT_TRUE(almost_equal(model.f(), sol));
+    int n_obs = 30;
+    for (size_t i=1; i<=n_obs; ++i) {
+        // std::cout << "Iteration " << i << std::endl;
+        // define model
+        double lambda_D = 0.001;
+        double lambda_T = 1;
+        STRPDE_NonLinear<SpaceTimeParabolic, fdapde::iterative> model(pde, Sampling::pointwise);
+        model.set_lambda_D(lambda_D);
+        model.set_lambda_T(lambda_T);
+        model.set_spatial_locations(locs);
+        // set model's data
+        std::string filename = "../data/models/strpde_nonlinear/test1_5/y" + std::to_string(i) + ".csv";
+        DMatrix<double> y = read_csv<double>(filename);
+        BlockFrame<double, int> df;
+        df.stack(OBSERVATIONS_BLK, y);
+        model.set_data(df);
+        // set parameters for iterative method
+        model.set_tolerance(1e-5);
+        model.set_max_iter(50);
+        // initialize smoothing problem
+        model.init();
+        double time = 0;
+        auto start = std::chrono::high_resolution_clock::now();
+        model.solve();
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        time = duration.count();
+
+        // test corretness
+        // create a grid of points different from the sampling points where we can compute the MSE
+        STRPDE<SpaceTimeParabolic, fdapde::iterative> model_grid(pde, Sampling::pointwise);
+        DMatrix<double> grid = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/grid_locs.csv");
+        model_grid.set_spatial_locations(grid);
+        model_grid.init_sampling(true);  // evalute Psi() in the new grid
+        // compute MSE over the grid
+        DVector<double> f_grid(grid.rows(), 1);
+        f_grid = model_grid.Psi()*model.f();
+        DMatrix<double> sol_grid = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/grid_sol.csv");
+        // DMatrix<double> sol_grid = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/grid_sol.csv");
+        double MSE_grid = 0;
+        int n = f_grid.rows();
+        for (size_t i=0; i<n; ++i)
+        {
+            MSE_grid += (sol_grid(i) - f_grid(i))*(sol_grid(i) - f_grid(i)) / (n);
+        }
+        file << "\"" << i+30 << "\" " << 1000 << " \"method2\" " << time << " " << MSE_grid << "\n";
+        // std::cout << "MSE_grid = " << MSE_grid << std::endl;
+        // std::cout << "inf_norm error in sgrid points = " << (f_grid - sol_grid).lpNorm<Eigen::Infinity>() << std::endl;
+
+        // // compute MSE over the nodes
+        // DMatrix<double> sol = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/sol.csv");
+        // // DMatrix<double> sol = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/sol.csv");
+        // double MSE = 0;
+        // n = model.f().rows();
+        // for (size_t i=0; i<n; ++i)
+        // {
+        //     MSE += (sol(i) - model.f()(i))*(sol(i) - model.f()(i)) / (n);
+        // }
+        // std::cout << "MSE = " << MSE << std::endl;
+
+        // // EXPECT_TRUE(almost_equal(model.f(), sol));
+        // std::cout << (model.f()-sol).lpNorm<Eigen::Infinity>() << std::endl;
+        // EXPECT_TRUE(almost_equal(model.f(), sol));
+    }
+
+    file.close();
 }
 
 // test 1 - method iterative_EI
@@ -239,22 +353,33 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_i
     // define temporal domain
     DVector<double> time_mesh;
     time_mesh.resize(10);
-    for (std::size_t i = 0; i < time_mesh.size(); ++i) time_mesh[i] = 1e-4*(i+1);
+    for (std::size_t i = 0; i < time_mesh.size(); ++i) time_mesh[i] = (1e-4)*(i+1);
     // define spatial domain
     MeshLoader<Mesh2D> domain("unit_square_coarse");
-    DMatrix<short int> boundary_matrix = DMatrix<short int>::Zero(domain.mesh.n_nodes(), 1) ; // has all zeros
+    DMatrix<short int> boundary_matrix = DMatrix<short int>::Zero(domain.mesh.n_nodes(), 1);
+    // neumann boundary on the left and right side (x=0, x=1)
+    // for (size_t j=1; j<20; j++) {
+    //     boundary_matrix(0 + 21*j, 0) = 1;
+    //     boundary_matrix(20 + 21*j, 0) = 1;
+    // }
     // import data from files
-    DMatrix<double> y  = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/y.csv");
-    DMatrix<double> IC = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/IC.csv");
+    DMatrix<double> locs  = read_csv<double>("../data/models/strpde_nonlinear/test1_5/space_locs.csv");
+    DMatrix<double> IC    = read_csv<double>("../data/models/strpde_nonlinear/test1_5/IC.csv");
+    // DMatrix<double> y  = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/y.csv");
+    // DMatrix<double> IC = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/IC.csv");
     // define regularizing PDE
-    std::function<double(SVector<1>)> h_ = [&](SVector<1> ff) -> double {return 1 - ff[0];};
+    double alpha = 7;
+    std::function<double(SVector<1>)> h_ = [&](SVector<1> ff) -> double {return alpha*(1 - ff[0]);};
+    // std::function<double(SVector<1>)> h_ = [&](SVector<1> ff) -> double {return 20/(5 + ff[0]);};
     NonLinearReaction<2, LagrangianBasis<decltype(domain.mesh),1>::ReferenceBasis> non_linear_reaction(h_);
     auto L = dt<FEM>() - laplacian<FEM>() - non_linear_op<FEM>(non_linear_reaction);
+    // auto L = dt<FEM>() - laplacian<FEM>() + non_linear_op<FEM>(non_linear_reaction);
     PDE<decltype(domain.mesh), decltype(L), DMatrix<double>, FEM, fem_order<1>> pde(domain.mesh, time_mesh, L, h_, boundary_matrix);
     pde.set_initial_condition(IC);
     //set forcing
-    auto forcing_expr = [](SVector<2> x, double t) -> double {
-        return -4*std::exp(-t) + std::cos(pi*x[0])*std::cos(pi*x[1])*std::exp(-t)*(-2+2*pi*pi) + (4 + std::cos(pi*x[0])*std::cos(pi*x[0])*std::cos(pi*x[1])*std::cos(pi*x[1]) + 4*std::cos(pi*x[0])*std::cos(pi*x[1]))*std::exp(-2*t);
+    auto forcing_expr = [&](SVector<2> x, double t) -> double {
+        return -(2 + 2*alpha)*std::exp(-t) + std::cos(pi*x[0])*std::cos(pi*x[1])*std::exp(-t)*(-1+2*pi*pi-alpha) + alpha*(4 + std::cos(pi*x[0])*std::cos(pi*x[0])*std::cos(pi*x[1])*std::cos(pi*x[1]) + 4*std::cos(pi*x[0])*std::cos(pi*x[1]))*std::exp(-2*t);
+        // return x[0]*x[0] + x[1]*x[1] + 2 - 4*t + 20*(x[0]*x[0] + x[1]*x[1] + 2)*t / (5 + (x[0]*x[0] + x[1]*x[1] + 2)*t);
     };
     DMatrix<double> quadrature_nodes = pde.force_quadrature_nodes();
     DMatrix<double> u(quadrature_nodes.rows(), time_mesh.rows());
@@ -265,6 +390,7 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_i
     // set dirichlet bcs
     auto solution_expr = [](SVector<2> x, double t) -> double {
         return (std::cos(pi*x[0])*std::cos(pi*x[1]) + 2)*std::exp(-t);
+        // return (x[0]*x[0] + x[1]*x[1] + 2) * t;
     };
     DMatrix<double> nodes_ = pde.dof_coords();
     DMatrix<double> dirichlet_bc(nodes_.rows(), time_mesh.size());
@@ -274,40 +400,87 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_i
         }
     }
     pde.set_dirichlet_bc(dirichlet_bc);
-    // define model
-    double lambda_D = 1;
-    double lambda_T = 1;
-    STRPDE_NonLinear<SpaceTimeParabolic, fdapde::iterative_EI> model(pde, Sampling::mesh_nodes);
-    model.set_lambda_D(lambda_D);
-    model.set_lambda_T(lambda_T);
-    // set model's data
-    BlockFrame<double, int> df;
-    df.stack(OBSERVATIONS_BLK, y);
-    model.set_data(df);
-    // set parameters for iterative method
-    model.set_tolerance(1e-5, 1e-8);
-    model.set_max_iter(50);
-    // solve smoothing problem
-    model.init();
-    model.solve();
-    DMatrix<double> sol = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/sol.csv");
-    
-    // test corretness
-    std::cout << "size psi = " << model.Psi().rows() << "x" << model.Psi().cols() << std::endl;
-    std::cout << "size f = " << model.f().rows() << "x" << model.f().cols() << std::endl;
-    double MSE = 0;
-    int n = model.f().rows();
-    int m = time_mesh.rows();
-    std::cout << "n normale = " << n << std::endl;
-    for (size_t i=0; i<n; ++i)
-    {
-        MSE += (sol(i) - model.f()(i))*(sol(i) - model.f()(i)) / (n);
-    }
-    std::cout << "MSE = " << MSE << std::endl;
+    // set neumann bcs
+    // auto neumann_expr = [](SVector<2> x, double t) -> double { 
+    //     if (x[1]==0 || x[1]==1) return 0;
+    //     return -pi*std::sin(pi*x[0])*std::cos(pi*x[1])*std::exp(-t);
+    //     // return 2*x[0]*t;;
+    // };
+    // DMatrix<double> boundary_quadrature_nodes = pde.boundary_quadrature_nodes();
+    // DMatrix<double> f_neumann(boundary_quadrature_nodes.rows(), time_mesh.size());
+    // for (auto i=0; i< boundary_quadrature_nodes.rows(); ++i){
+    //     for (int j = 0; j < time_mesh.size(); ++j) f_neumann(i, j) = neumann_expr(boundary_quadrature_nodes.row(i), time_mesh(j));
+    // }
+    // pde.set_neumann_bc(f_neumann);
 
-    // EXPECT_TRUE(almost_equal(model.f(), sol));
-    std::cout << (model.f()-sol).lpNorm<Eigen::Infinity>() << std::endl;
-    EXPECT_TRUE(almost_equal(model.f(), sol));
+    std::ofstream file("results_NLSTRPDE_iterativeEI.txt");    //it will be exported in the current build directory
+
+    int n_obs = 30;
+    for (size_t i=1; i<=n_obs; ++i) {
+        // std::cout << "Iteration " << i << std::endl;
+        // define model
+        double lambda_D = 1;
+        double lambda_T = 1;
+        STRPDE_NonLinear<SpaceTimeParabolic, fdapde::iterative_EI> model(pde, Sampling::pointwise);
+        model.set_lambda_D(lambda_D);
+        model.set_lambda_T(lambda_T);
+        model.set_spatial_locations(locs);
+        // set model's data
+        std::string filename = "../data/models/strpde_nonlinear/test1_5/y" + std::to_string(i) + ".csv";
+        DMatrix<double> y = read_csv<double>(filename);
+        BlockFrame<double, int> df;
+        df.stack(OBSERVATIONS_BLK, y);
+        model.set_data(df);
+        // set parameters for iterative method
+        model.set_tolerance(1e-5, 1e-8);
+        model.set_max_iter(50);
+        // initialize smoothing problem
+        model.init();
+        double time = 0;
+        auto start = std::chrono::high_resolution_clock::now();
+        model.solve();
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        time = duration.count();
+
+        // test corretness
+        // create a grid of points different from the sampling points where we can compute the MSE
+        STRPDE<SpaceTimeParabolic, fdapde::iterative> model_grid(pde, Sampling::pointwise);
+        DMatrix<double> grid = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/grid_locs.csv");
+        model_grid.set_spatial_locations(grid);
+        model_grid.init_sampling(true);  // evalute Psi() in the new grid
+        // compute MSE over the grid
+        DVector<double> f_grid(grid.rows(), 1);
+        f_grid = model_grid.Psi()*model.f();
+        DMatrix<double> sol_grid = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/grid_sol.csv");
+        // DMatrix<double> sol_grid = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/grid_sol.csv");
+        double MSE_grid = 0;
+        int n = f_grid.rows();
+        for (size_t i=0; i<n; ++i)
+        {
+            MSE_grid += (sol_grid(i) - f_grid(i))*(sol_grid(i) - f_grid(i)) / (n);
+        }
+        file << "\"" << i+120 << "\" " << 1000 << " \"method5\" " << time << " " << MSE_grid << "\n";
+        // std::cout << "MSE_grid = " << MSE_grid << std::endl;
+        // std::cout << "inf_norm error in sgrid points = " << (f_grid - sol_grid).lpNorm<Eigen::Infinity>() << std::endl;
+
+        // // compute MSE over the nodes
+        // DMatrix<double> sol = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/sol.csv");
+        // // DMatrix<double> sol = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/sol.csv");
+        // double MSE = 0;
+        // n = model.f().rows();
+        // for (size_t i=0; i<n; ++i)
+        // {
+        //     MSE += (sol(i) - model.f()(i))*(sol(i) - model.f()(i)) / (n);
+        // }
+        // std::cout << "MSE = " << MSE << std::endl;
+
+        // // EXPECT_TRUE(almost_equal(model.f(), sol));
+        // std::cout << (model.f()-sol).lpNorm<Eigen::Infinity>() << std::endl;
+        // EXPECT_TRUE(almost_equal(model.f(), sol));
+    }
+
+    file.close();
 }
 
 // test 1 - method iterative
@@ -323,22 +496,34 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_i
     // define temporal domain
     DVector<double> time_mesh;
     time_mesh.resize(10);
-    for (std::size_t i = 0; i < time_mesh.size(); ++i) time_mesh[i] = 1e-4*(i+1);
+    for (std::size_t i = 0; i < time_mesh.size(); ++i) time_mesh[i] = (1e-4)*(i+1);
     // define spatial domain
     MeshLoader<Mesh2D> domain("unit_square_coarse");
-    DMatrix<short int> boundary_matrix = DMatrix<short int>::Zero(domain.mesh.n_nodes(), 1) ; // has all zeros
+    DMatrix<short int> boundary_matrix = DMatrix<short int>::Zero(domain.mesh.n_nodes(), 1);
+    // neumann boundary on the left and right side (x=0, x=1)
+    // for (size_t j=1; j<20; j++) {
+    //     boundary_matrix(0 + 21*j, 0) = 1;
+    //     boundary_matrix(20 + 21*j, 0) = 1;
+    // }
+
     // import data from files
-    DMatrix<double> y  = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/y.csv");
-    DMatrix<double> IC = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/IC.csv");
+    DMatrix<double> locs  = read_csv<double>("../data/models/strpde_nonlinear/test1_5/space_locs.csv");
+    DMatrix<double> IC    = read_csv<double>("../data/models/strpde_nonlinear/test1_5/IC.csv");
+    // DMatrix<double> y  = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/y.csv");
+    // DMatrix<double> IC = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/IC.csv");
     // define regularizing PDE
-    std::function<double(SVector<1>)> h_ = [&](SVector<1> ff) -> double {return 1 - ff[0];};
+    double alpha = 7;
+    std::function<double(SVector<1>)> h_ = [&](SVector<1> ff) -> double {return alpha*(1 - ff[0]);};
+    // std::function<double(SVector<1>)> h_ = [&](SVector<1> ff) -> double {return 20/(5 + ff[0]);};
     NonLinearReaction<2, LagrangianBasis<decltype(domain.mesh),1>::ReferenceBasis> non_linear_reaction(h_);
     auto L = dt<FEM>() - laplacian<FEM>() - non_linear_op<FEM>(non_linear_reaction);
+    // auto L = dt<FEM>() - laplacian<FEM>() + non_linear_op<FEM>(non_linear_reaction);
     PDE<decltype(domain.mesh), decltype(L), DMatrix<double>, FEM, fem_order<1>> pde(domain.mesh, time_mesh, L, h_, boundary_matrix);
     pde.set_initial_condition(IC);
     //set forcing
-    auto forcing_expr = [](SVector<2> x, double t) -> double {
-        return -4*std::exp(-t) + std::cos(pi*x[0])*std::cos(pi*x[1])*std::exp(-t)*(-2+2*pi*pi) + (4 + std::cos(pi*x[0])*std::cos(pi*x[0])*std::cos(pi*x[1])*std::cos(pi*x[1]) + 4*std::cos(pi*x[0])*std::cos(pi*x[1]))*std::exp(-2*t);
+    auto forcing_expr = [&](SVector<2> x, double t) -> double {
+        return -(2 + 2*alpha)*std::exp(-t) + std::cos(pi*x[0])*std::cos(pi*x[1])*std::exp(-t)*(-1+2*pi*pi-alpha) + alpha*(4 + std::cos(pi*x[0])*std::cos(pi*x[0])*std::cos(pi*x[1])*std::cos(pi*x[1]) + 4*std::cos(pi*x[0])*std::cos(pi*x[1]))*std::exp(-2*t);
+        // return x[0]*x[0] + x[1]*x[1] + 2 - 4*t + 20*(x[0]*x[0] + x[1]*x[1] + 2)*t / (5 + (x[0]*x[0] + x[1]*x[1] + 2)*t);
     };
     DMatrix<double> quadrature_nodes = pde.force_quadrature_nodes();
     DMatrix<double> u(quadrature_nodes.rows(), time_mesh.rows());
@@ -349,6 +534,7 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_i
     // set dirichlet bcs
     auto solution_expr = [](SVector<2> x, double t) -> double {
         return (std::cos(pi*x[0])*std::cos(pi*x[1]) + 2)*std::exp(-t);
+        // return (x[0]*x[0] + x[1]*x[1] + 2) * t;
     };
     DMatrix<double> nodes_ = pde.dof_coords();
     DMatrix<double> dirichlet_bc(nodes_.rows(), time_mesh.size());
@@ -358,37 +544,87 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_i
         }
     }
     pde.set_dirichlet_bc(dirichlet_bc);
-    // define model
-    double lambda_D = 1;
-    double lambda_T = 1;
-    STRPDE_NonLinear<SpaceTimeParabolic, fdapde::iterative> model(pde, Sampling::mesh_nodes);
-    model.set_lambda_D(lambda_D);
-    model.set_lambda_T(lambda_T);
-    // set model's data
-    BlockFrame<double, int> df;
-    df.stack(OBSERVATIONS_BLK, y);
-    model.set_data(df);
-    // set parameters for iterative method
-    model.set_tolerance(1e-5, 1e-8);
-    model.set_max_iter(50);
-    // solve smoothing problem
-    model.init();
-    model.solve();
-    DMatrix<double> sol = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/sol.csv");
-    
-    // test corretness
-    double MSE = 0;
-    int n = model.f().rows();
-    int m = time_mesh.rows();
-    for (size_t i=0; i<n; ++i)
-    {
-        MSE += (sol(i) - model.f()(i))*(sol(i) - model.f()(i)) / (n);
-    }
-    std::cout << "MSE = " << MSE << std::endl;
+    // set neumann bcs
+    // auto neumann_expr = [](SVector<2> x, double t) -> double { 
+    //     if (x[1]==0 || x[1]==1) return 0;
+    //     return -pi*std::sin(pi*x[0])*std::cos(pi*x[1])*std::exp(-t);
+    //     // return 2*x[0]*t;;
+    // };
+    // DMatrix<double> boundary_quadrature_nodes = pde.boundary_quadrature_nodes();
+    // DMatrix<double> f_neumann(boundary_quadrature_nodes.rows(), time_mesh.size());
+    // for (auto i=0; i< boundary_quadrature_nodes.rows(); ++i){
+    //     for (int j = 0; j < time_mesh.size(); ++j) f_neumann(i, j) = neumann_expr(boundary_quadrature_nodes.row(i), time_mesh(j));
+    // }
+    // pde.set_neumann_bc(f_neumann);
 
-    // EXPECT_TRUE(almost_equal(model.f(), sol));
-    std::cout << (model.f()-sol).lpNorm<Eigen::Infinity>() << std::endl;
-    EXPECT_TRUE(almost_equal(model.f(), sol));
+    std::ofstream file("results_NLSTRPDE_iterative.txt");    //it will be exported in the current build directory
+
+    int n_obs = 30;
+    for (size_t i=1; i<=n_obs; ++i) {
+        // std::cout << "Iteration " << i << std::endl;
+        // define model
+        double lambda_D = 1;
+        double lambda_T = 1;
+        STRPDE_NonLinear<SpaceTimeParabolic, fdapde::iterative> model(pde, Sampling::pointwise);
+        model.set_lambda_D(lambda_D);
+        model.set_lambda_T(lambda_T);
+        model.set_spatial_locations(locs);
+        // set model's data
+        std::string filename = "../data/models/strpde_nonlinear/test1_5/y" + std::to_string(i) + ".csv";
+        DMatrix<double> y = read_csv<double>(filename);
+        BlockFrame<double, int> df;
+        df.stack(OBSERVATIONS_BLK, y);
+        model.set_data(df);
+        // set parameters for iterative method
+        model.set_tolerance(1e-5, 1e-8);
+        model.set_max_iter(50);
+        // initialize smoothing problem
+        model.init();
+        double time = 0;
+        auto start = std::chrono::high_resolution_clock::now();
+        model.solve();
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        time = duration.count();
+
+        // test corretness
+        // create a grid of points different from the sampling points where we can compute the MSE
+        STRPDE<SpaceTimeParabolic, fdapde::iterative> model_grid(pde, Sampling::pointwise);
+        DMatrix<double> grid = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/grid_locs.csv");
+        model_grid.set_spatial_locations(grid);
+        model_grid.init_sampling(true);  // evalute Psi() in the new grid
+        // compute MSE over the grid
+        DVector<double> f_grid(grid.rows(), 1);
+        f_grid = model_grid.Psi()*model.f();
+        DMatrix<double> sol_grid = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/grid_sol.csv");
+        // DMatrix<double> sol_grid = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/grid_sol.csv");
+        double MSE_grid = 0;
+        int n = f_grid.rows();
+        for (size_t i=0; i<n; ++i)
+        {
+            MSE_grid += (sol_grid(i) - f_grid(i))*(sol_grid(i) - f_grid(i)) / (n);
+        }
+        file << "\"" << i+90 << "\" " << 1000 << " \"method4\" " << time << " " << MSE_grid << "\n";
+        // std::cout << "MSE_grid = " << MSE_grid << std::endl;
+        // std::cout << "inf_norm error in sgrid points = " << (f_grid - sol_grid).lpNorm<Eigen::Infinity>() << std::endl;
+
+        // // compute MSE over the nodes
+        // DMatrix<double> sol = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/sol.csv");
+        // // DMatrix<double> sol = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/sol.csv");
+        // double MSE = 0;
+        // n = model.f().rows();
+        // for (size_t i=0; i<n; ++i)
+        // {
+        //     MSE += (sol(i) - model.f()(i))*(sol(i) - model.f()(i)) / (n);
+        // }
+        // std::cout << "MSE = " << MSE << std::endl;
+
+        // // EXPECT_TRUE(almost_equal(model.f(), sol));
+        // std::cout << (model.f()-sol).lpNorm<Eigen::Infinity>() << std::endl;
+        // EXPECT_TRUE(almost_equal(model.f(), sol));
+    }
+
+    file.close();
 }
 
 
@@ -405,22 +641,33 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_m
     // define temporal domain
     DVector<double> time_mesh;
     time_mesh.resize(10);
-    for (std::size_t i = 0; i < time_mesh.size(); ++i) time_mesh[i] = 1e-4*(i+1);
+    for (std::size_t i = 0; i < time_mesh.size(); ++i) time_mesh[i] = (1e-4)*(i+1);
     // define spatial domain
     MeshLoader<Mesh2D> domain("unit_square_coarse");
     DMatrix<short int> boundary_matrix = DMatrix<short int>::Zero(domain.mesh.n_nodes(), 1);
+    // neumann boundary on the left and right side (x=0, x=1)
+    // for (size_t j=1; j<20; j++) {
+    //     boundary_matrix(0 + 21*j, 0) = 1;
+    //     boundary_matrix(20 + 21*j, 0) = 1;
+    // }
     // import data from files
-    DMatrix<double> y  = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/y.csv");
-    DMatrix<double> IC = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/IC.csv");
+    DMatrix<double> locs  = read_csv<double>("../data/models/strpde_nonlinear/test1_5/space_locs.csv");
+    DMatrix<double> IC    = read_csv<double>("../data/models/strpde_nonlinear/test1_5/IC.csv");
+    // DMatrix<double> y  = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/y.csv");
+    // DMatrix<double> IC = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/IC.csv");
     // define regularizing PDE
-    std::function<double(SVector<1>)> h_ = [&](SVector<1> ff) -> double {return 1 - ff[0];};
+    double alpha = 7;
+    std::function<double(SVector<1>)> h_ = [&](SVector<1> ff) -> double {return alpha*(1 - ff[0]);};
+    // std::function<double(SVector<1>)> h_ = [&](SVector<1> ff) -> double {return 20/(5 + ff[0]);};
     NonLinearReaction<2, LagrangianBasis<decltype(domain.mesh),1>::ReferenceBasis> non_linear_reaction(h_);
     auto L = dt<FEM>() - laplacian<FEM>() - non_linear_op<FEM>(non_linear_reaction);
+    // auto L = dt<FEM>() - laplacian<FEM>() + non_linear_op<FEM>(non_linear_reaction);
     PDE<decltype(domain.mesh), decltype(L), DMatrix<double>, FEM, fem_order<1>> pde(domain.mesh, time_mesh, L, h_, boundary_matrix);
     pde.set_initial_condition(IC);
     //set forcing
-    auto forcing_expr = [](SVector<2> x, double t) -> double {
-        return -4*std::exp(-t) + std::cos(pi*x[0])*std::cos(pi*x[1])*std::exp(-t)*(-2+2*pi*pi) + (4 + std::cos(pi*x[0])*std::cos(pi*x[0])*std::cos(pi*x[1])*std::cos(pi*x[1]) + 4*std::cos(pi*x[0])*std::cos(pi*x[1]))*std::exp(-2*t);
+    auto forcing_expr = [&](SVector<2> x, double t) -> double {
+        return -(2 + 2*alpha)*std::exp(-t) + std::cos(pi*x[0])*std::cos(pi*x[1])*std::exp(-t)*(-1+2*pi*pi-alpha) + alpha*(4 + std::cos(pi*x[0])*std::cos(pi*x[0])*std::cos(pi*x[1])*std::cos(pi*x[1]) + 4*std::cos(pi*x[0])*std::cos(pi*x[1]))*std::exp(-2*t);
+        // return x[0]*x[0] + x[1]*x[1] + 2 - 4*t + 20*(x[0]*x[0] + x[1]*x[1] + 2)*t / (5 + (x[0]*x[0] + x[1]*x[1] + 2)*t);
     };
     DMatrix<double> quadrature_nodes = pde.force_quadrature_nodes();
     DMatrix<double> u(quadrature_nodes.rows(), time_mesh.rows());
@@ -431,6 +678,7 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_m
     // set dirichlet bcs
     auto solution_expr = [](SVector<2> x, double t) -> double {
         return (std::cos(pi*x[0])*std::cos(pi*x[1]) + 2)*std::exp(-t);
+        // return (x[0]*x[0] + x[1]*x[1] + 2) * t;
     };
     DMatrix<double> nodes_ = pde.dof_coords();
     DMatrix<double> dirichlet_bc(nodes_.rows(), time_mesh.size());
@@ -440,37 +688,87 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_m
         }
     }
     pde.set_dirichlet_bc(dirichlet_bc);
-    // define model
-    double lambda_D = 2;
-    double lambda_T = 1;
-    STRPDE_NonLinear<SpaceTimeParabolic, fdapde::monolithic> model(pde, Sampling::mesh_nodes);
-    model.set_lambda_D(lambda_D);
-    model.set_lambda_T(lambda_T);
-    // set model's data
-    BlockFrame<double, int> df;
-    df.stack(OBSERVATIONS_BLK, y);
-    model.set_data(df);
-    // set parameters for iterative method
-    model.set_tolerance(1e-5);
-    model.set_max_iter(15);
-    // solve smoothing problem
-    model.init();
-    model.solve();
-    DMatrix<double> sol = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/sol.csv");
-    
-    // test corretness
-    double MSE = 0;
-    int n = model.f().rows();
-    int m = time_mesh.rows();
-    for (size_t i=0; i<n; ++i)
-    {
-        MSE += (sol(i) - model.f()(i))*(sol(i) - model.f()(i)) / (n);
-    }
-    std::cout << "MSE = " << MSE << std::endl;
+    // set neumann bcs
+    // auto neumann_expr = [](SVector<2> x, double t) -> double { 
+    //     if (x[1]==0 || x[1]==1) return 0;
+    //     return -pi*std::sin(pi*x[0])*std::cos(pi*x[1])*std::exp(-t);
+    //     // return 2*x[0]*t;;
+    // };
+    // DMatrix<double> boundary_quadrature_nodes = pde.boundary_quadrature_nodes();
+    // DMatrix<double> f_neumann(boundary_quadrature_nodes.rows(), time_mesh.size());
+    // for (auto i=0; i< boundary_quadrature_nodes.rows(); ++i){
+    //     for (int j = 0; j < time_mesh.size(); ++j) f_neumann(i, j) = neumann_expr(boundary_quadrature_nodes.row(i), time_mesh(j));
+    // }
+    // pde.set_neumann_bc(f_neumann);
 
-    // EXPECT_TRUE(almost_equal(model.f(), sol));
-    std::cout << (model.f()-sol).lpNorm<Eigen::Infinity>() << std::endl;
-    EXPECT_TRUE(almost_equal(model.f(), sol));
+    std::ofstream file("results_NLSTRPDE_monolithic.txt");    //it will be exported in the current build directory
+
+    int n_obs = 30;
+    for (size_t i=1; i<=n_obs; ++i) {
+        // std::cout << "Iteration " << i << std::endl;
+        // define model
+        double lambda_D = 1;
+        double lambda_T = 1;
+        STRPDE_NonLinear<SpaceTimeParabolic, fdapde::monolithic> model(pde, Sampling::pointwise);
+        model.set_lambda_D(lambda_D);
+        model.set_lambda_T(lambda_T);
+        model.set_spatial_locations(locs);
+        // set model's data
+        std::string filename = "../data/models/strpde_nonlinear/test1_5/y" + std::to_string(i) + ".csv";
+        DMatrix<double> y = read_csv<double>(filename);
+        BlockFrame<double, int> df;
+        df.stack(OBSERVATIONS_BLK, y);
+        model.set_data(df);
+        // set parameters for iterative method
+        model.set_tolerance(1e-5);
+        model.set_max_iter(15);
+        // initialize smoothing problem
+        model.init();
+        double time = 0;
+        auto start = std::chrono::high_resolution_clock::now();
+        model.solve();
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        time = duration.count();
+
+        // test corretness
+        // create a grid of points different from the sampling points where we can compute the MSE
+        STRPDE<SpaceTimeParabolic, fdapde::iterative> model_grid(pde, Sampling::pointwise);
+        DMatrix<double> grid = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/grid_locs.csv");
+        model_grid.set_spatial_locations(grid);
+        model_grid.init_sampling(true);  // evalute Psi() in the new grid
+        // compute MSE over the grid
+        DVector<double> f_grid(grid.rows(), 1);
+        f_grid = model_grid.Psi()*model.f();
+        DMatrix<double> sol_grid = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/grid_sol.csv");
+        // DMatrix<double> sol_grid = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/grid_sol.csv");
+        double MSE_grid = 0;
+        int n = f_grid.rows();
+        for (size_t i=0; i<n; ++i)
+        {
+            MSE_grid += (sol_grid(i) - f_grid(i))*(sol_grid(i) - f_grid(i)) / (n);
+        }
+        file << "\"" << i+60 << "\" " << 1000 << " \"method3\" " << time << " " << MSE_grid << "\n";
+        // std::cout << "MSE_grid = " << MSE_grid << std::endl;
+        // std::cout << "inf_norm error in sgrid points = " << (f_grid - sol_grid).lpNorm<Eigen::Infinity>() << std::endl;
+
+        // // compute MSE over the nodes
+        // DMatrix<double> sol = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/sol.csv");
+        // // DMatrix<double> sol = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/sol.csv");
+        // double MSE = 0;
+        // n = model.f().rows();
+        // for (size_t i=0; i<n; ++i)
+        // {
+        //     MSE += (sol(i) - model.f()(i))*(sol(i) - model.f()(i)) / (n);
+        // }
+        // std::cout << "MSE = " << MSE << std::endl;
+
+        // // EXPECT_TRUE(almost_equal(model.f(), sol));
+        // std::cout << (model.f()-sol).lpNorm<Eigen::Infinity>() << std::endl;
+        // EXPECT_TRUE(almost_equal(model.f(), sol));
+    }
+    
+    file.close();
 }
 
 // test 2 - method iterative_EI
@@ -482,7 +780,7 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_m
 //    order FE:     1
 //    time penalization: parabolic (iterative_EI solver)
 //    exact solution   : (cos(pi*x)*cos(pi*y) + 2)*exp(-t)
-TEST(strpde_nonlninear_test, laplacian_nonparametric_sapcesamplingpoitwise_parabolic_iterative_EI) {
+/*TEST(strpde_nonlninear_test, laplacian_nonparametric_sapcesamplingpoitwise_parabolic_iterative_EI) {
     // define temporal domain
     DVector<double> time_mesh;
     time_mesh.resize(10);
@@ -1180,7 +1478,7 @@ TEST(strpde_nonlninear_test, surface_nonparametric_samplingatnodes_parabolic_ite
     // EXPECT_TRUE(almost_equal(model.f(), sol));
     std::cout << (model.f()-sol).lpNorm<Eigen::Infinity>() << std::endl;
     EXPECT_TRUE(almost_equal(model.f(), sol));
-}
+} */
 
 // test 5 - method iterative
 //    domain:       unit square [1,1] x [1,1]

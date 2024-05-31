@@ -153,10 +153,7 @@ class STRPDE<SpaceTimeParabolic, monolithic> :
         // prepare rhs of linear system
         b_.resize(A_.rows());
         b_.block(A_.rows() / 2, 0, A_.rows() / 2, 1) = lambda_D() * (u() + u_neumann() + u_robin());
-        // std::cout << "A.rows() = " << A_.rows() << ", n_basis = " << n_basis() << std::endl;
-        // std::cout << "dimension R1 = " << R1().rows() << " x " << R1().cols() << std::endl;
-        // std::cout << "dimension L = " << L_.rows() << " x " << L_.cols() << std::endl;
-        // std::cout << "dimension robin matrix = " << R0_robin().rows() << " x " << R0_robin().cols() << std::endl;
+        if (!is_empty(pde_.dirichlet_boundary_data())) matrix_bc_Dirichlet_ = pde_.matrix_bc_Dirichlet();
         return;
     }
     void update_to_weights() {   // update model object in case of changes in the weights matrix
@@ -197,6 +194,12 @@ class STRPDE<SpaceTimeParabolic, monolithic> :
         }
         // store PDE misfit
         g_ = sol.tail(A_.rows() / 2);
+
+        // save A_ and invA_ without bcs
+        // A_ =  SparseBlockMatrix<double, 2, 2>(
+        //   -PsiTD() * W() * Psi(), lambda_D() * (R1() + R0_robin() + lambda_T() * L_).transpose(),
+        //   lambda_D() * (R1() + R0_robin() + lambda_T() * L_), lambda_D() * R0());
+        // invA_.compute(A_);
         return;
     }
     // getters
@@ -216,6 +219,9 @@ class STRPDE<SpaceTimeParabolic, iterative> :
     SparseBlockMatrix<double, 2, 2> A_ {};      // system matrix of non-parametric problem (2N x 2N matrix)
     fdapde::SparseLU<SpMatrix<double>> invA_;   // factorization of matrix A
     DVector<double> b_ {};                      // right hand side of problem's linear system (1 x 2N vector)
+    SpMatrix<double> Psi_it;
+    SpMatrix<double> PsiTD_it;
+    SpMatrix<double> L_;                        // L \kron R0
 
     // the functional minimized by the iterative scheme
     // J(f,g) = \sum_{k=1}^m (z^k - \Psi*f^k)^T*(z^k - \Psi*f^k) + \lambda_S*(g^k)^T*(g^k)
@@ -223,22 +229,20 @@ class STRPDE<SpaceTimeParabolic, iterative> :
         double SSE = 0;
         // SSE = \sum_{k=1}^m (z^k - \Psi*f^k)^T*(z^k - \Psi*f^k)
         for (std::size_t t = 0; t < n_temporal_locs(); ++t) {
-            SSE += (y(t) - Psi() * f.block(n_spatial_basis() * t, 0, n_spatial_basis(), 1)).squaredNorm();
+            SSE += (y_it(t) - Psi_it * f.block(n_spatial_basis() * t, 0, n_spatial_basis(), 1)).squaredNorm();
         }
         return SSE + lambda_D() * g.squaredNorm();
     }
     // internal solve routine used by the iterative method
-    void solve(std::size_t t, BlockVector<double>& f_new, BlockVector<double>& g_new) const {
+    void solve_it(std::size_t t, BlockVector<double>& f_new, BlockVector<double>& g_new) const {
         DVector<double> x = invA_.solve(b_);
         f_new(t) = x.topRows(n_spatial_basis());
         g_new(t) = x.bottomRows(n_spatial_basis());
-        // if (t==0) std::cout << "x(0)" << x(0) << std::endl;
-        // if (t==n_temporal_locs()-1) std::cout << "x(final)" << x(881) << std::endl;
         return;
     }
     // internal utilities
-    DMatrix<double> y(std::size_t k) const { return y().block(n_spatial_locs() * k, 0, n_spatial_locs(), 1); }
-    DMatrix<double> u(std::size_t k) const { return u_.block(n_basis() * k, 0, n_basis(), 1); }
+    DMatrix<double> y_it(std::size_t k) const { return y().block(n_spatial_locs() * k, 0, n_spatial_locs(), 1); }
+    DMatrix<double> u_it(std::size_t k) const { return u_.block(n_basis() * k, 0, n_basis(), 1); }
     DMatrix<double> u_neumann(std::size_t k) const { return pde().force_neumann().block(n_basis() * k, 0, n_basis(), 1); }
     DMatrix<double> u_robin(std::size_t k) const { return pde().force_robin().block(n_basis() * k, 0, n_basis(), 1); }
 
@@ -259,30 +263,29 @@ class STRPDE<SpaceTimeParabolic, iterative> :
     STRPDE() = default;
     STRPDE(const pde_ptr& pde, Sampling s) : Base(pde, s) { pde_.init(); };
 
-    // redefine SpaceTimeParabolicBase properties affected by iterative approach
-    void tensorize_psi() { return; } // avoid tensorization of \Psi matrix
-    void init_regularization() {
-        pde_.init();
-	    s_ = pde_.initial_condition();
-        // compute time step (assuming equidistant points)
-        DeltaT_ = time_[1] - time_[0];
-        u_ = pde_.force();   // compute forcing term
-        // correct first n rows of discretized force as (u_1 + R0*s/DeltaT)
-        u_.block(0, 0, n_basis(), 1) += (1.0 / DeltaT_) * (pde_.mass() * s_);
-    }
     // getters
-    const SpMatrix<double>& R0() const { return pde_.mass(); }    // mass matrix in space
-    const SpMatrix<double>& R1() const { return pde_.stiff(); }   // discretization of differential operator L
-    const SpMatrix<double>& R0_robin() const { return pde_.mass_robin(); }   // mass bpundary matrix due to RObin bcs
+    const SpMatrix<double>& R0_it() const { return pde_.mass(); }    // mass matrix in space used in one iteration
+    const SpMatrix<double>& R1_it() const { return pde_.stiff(); }   // discretization of differential operator L used in one iteration
+    const SpMatrix<double>& R0_robin_it() const { return pde_.mass_robin(); }   // mass boundary matrix due to RObin bcs used in one iteration
     std::size_t n_basis() const { return pde_.n_dofs(); }         // number of basis functions
 
-    void init_model() { return; };
+    void init_model() { 
+        if (!is_empty(pde_.dirichlet_boundary_data())) matrix_bc_Dirichlet_ = pde_.matrix_bc_Dirichlet();
+        return; 
+    };
     void solve() {
         fdapde_assert(y().rows() != 0);
+
+        // define Psi and PsiDT for each iteration
+        Psi_it.resize(n_spatial_locs(), n_basis());
+        Psi_it = Psi().block(0, 0, n_spatial_locs(), n_basis());
+        PsiTD_it.resize(n_basis(), n_spatial_locs());
+        PsiTD_it = PsiTD().block(0, 0, n_basis(), n_spatial_locs());
+
         // compute starting point (f^(k,0), g^(k,0)) k = 1 ... m for iterative minimization of functional J(f,g)
         A_ = SparseBlockMatrix<double, 2, 2>(
-          PsiTD() * Psi(),   lambda_D() * (R1() + R0_robin()).transpose(),
-	      lambda_D() * (R1() + R0_robin()), -lambda_D() * R0()           );
+          PsiTD_it * Psi_it,   lambda_D() * (R1_it() + R0_robin_it()).transpose(),
+	      lambda_D() * (R1_it() + R0_robin_it()), -lambda_D() * R0_it()           );
         b_.resize(A_.rows());
         set_dirichlet_bc(A_, b_, 0);
         // cache system matrix and its factorization
@@ -293,8 +296,8 @@ class STRPDE<SpaceTimeParabolic, iterative> :
         // solve n_temporal_locs() space only linear systems
         for (std::size_t t = 0; t < n_temporal_locs(); ++t) {
             // right hand side at time step t
-            b_ << PsiTD() * y(t),   // should put W()
-              lambda_D() * lambda_T() * (u(t) + u_neumann(t) + u_robin(t));
+            b_ << PsiTD_it * y_it(t),   // should put W()
+              lambda_D() * lambda_T() * (u_it(t) + u_neumann(t) + u_robin(t));
             // impose dirichlet boundary conditions
             set_dirichlet_bc(b_, t);
             // solve linear system Ax = b_(t) and store estimate of spatial field
@@ -305,19 +308,19 @@ class STRPDE<SpaceTimeParabolic, iterative> :
         //    G0 = [(\lambda_S*\lambda_T)/DeltaT * R_0 + \lambda_S*R_1^T]
         //    G0*g^(k,0) = \Psi^T*y^k + (\lambda_S*\lambda_T/DeltaT*R_0)*g^(k+1,0) - \Psi^T*\Psi*f^(k,0)
         SpMatrix<double> G0 =
-          (lambda_D() * lambda_T() / DeltaT()) * R0() + SpMatrix<double>((lambda_D() * (R1() + R0_robin())).transpose());
+          (lambda_D() * lambda_T() / DeltaT()) * R0_it() + SpMatrix<double>((lambda_D() * (R1_it() + R0_robin_it())).transpose());
         Eigen::SparseLU<SpMatrix<double>, Eigen::COLAMDOrdering<int>> invG0;
         invG0.compute(G0);   // compute factorization of matrix G0
 
         BlockVector<double> g_old(n_temporal_locs(), n_spatial_basis());
         // solve n_temporal_locs() distinct problems (in backward order)
         // at last step g^(t+1,0) is zero
-        b_ = PsiTD() * (y(n_temporal_locs() - 1) - Psi() * f_old(n_temporal_locs() - 1));
+        b_ = PsiTD_it * (y_it(n_temporal_locs() - 1) - Psi_it * f_old(n_temporal_locs() - 1));
         g_old(n_temporal_locs() - 1) = invG0.solve(b_);
         // general step
         for (int t = n_temporal_locs() - 2; t >= 0; --t) {
             // compute rhs at time t: \Psi^T*y^t + (\lambda_S*\lambda_T/DeltaT*R_0)*g^(t+1,0) - \Psi^T*\Psi*f^(t,0)
-            b_ = PsiTD() * (y(t) - Psi() * f_old(t)) + (lambda_D() * lambda_T() / DeltaT()) * R0() * g_old(t + 1);
+            b_ = PsiTD_it * (y_it(t) - Psi_it * f_old(t)) + (lambda_D() * lambda_T() / DeltaT()) * R0_it() * g_old(t + 1);
             // solve linear system G0*g^(t,1) = b_t and store estimate of PDE misfit
             g_old(t) = invG0.solve(b_);
         }
@@ -327,8 +330,8 @@ class STRPDE<SpaceTimeParabolic, iterative> :
         double Jnew = J(f_old.get(), g_old.get());
         std::size_t i = 1;   // iteration number
         // build system matrix for the iterative scheme
-        A_.block(0, 1) += lambda_D() * lambda_T() / DeltaT() * R0();
-        A_.block(1, 0) += lambda_D() * lambda_T() / DeltaT() * R0();
+        A_.block(0, 1) += lambda_D() * lambda_T() / DeltaT() * R0_it();
+        A_.block(1, 0) += lambda_D() * lambda_T() / DeltaT() * R0_it();
         b_.resize(A_.rows());
         set_dirichlet_bc(A_, b_, 0);
         invA_.compute(A_);
@@ -337,43 +340,62 @@ class STRPDE<SpaceTimeParabolic, iterative> :
         BlockVector<double> f_new(n_temporal_locs(), n_spatial_basis()), g_new(n_temporal_locs(), n_spatial_basis());
         // iterative scheme for minimization of functional J
         while (i < max_iter_ && std::abs((Jnew - Jold) / Jnew) > tol_) {
-            std::cout << "Iteration " << i << std::endl;
+            // std::cout << "Iteration " << i << std::endl;
             // at step 0 f^(k-1,i-1) is zero
-            b_ << PsiTD() * y(0) + (lambda_D() * lambda_T() / DeltaT()) * R0() * g_old(1), lambda_D() * (u(0) + u_neumann(0) + u_robin(0));
+            b_ << PsiTD_it * y_it(0) + (lambda_D() * lambda_T() / DeltaT()) * R0_it() * g_old(1), lambda_D() * (u_it(0) + u_neumann(0) + u_robin(0));
             // impose dirichlet bcs
             set_dirichlet_bc(b_, 0);
             // solve linear system
-            solve(0, f_new, g_new);
+            solve_it(0, f_new, g_new);
             // general step
             for (std::size_t t = 1; t < n_temporal_locs() - 1; ++t) {
                 // \Psi^T*y^k   + (\lambda_D*\lambda_T/DeltaT)*R_0*g^(k+1,i-1),
                 // \lambda_D*u^k + (\lambda_D*\lambda_T/DeltaT)*R_0*f^(k-1,i-1)
-                b_ << PsiTD() * y(t) + (lambda_D() * lambda_T() / DeltaT()) * R0() * g_old(t + 1),
-                  lambda_D() * (lambda_T() / DeltaT() * R0() * f_old(t - 1) + (u(t) + u_neumann(t) + u_robin(t)));
+                b_ << PsiTD_it * y_it(t) + (lambda_D() * lambda_T() / DeltaT()) * R0_it() * g_old(t + 1),
+                  lambda_D() * (lambda_T() / DeltaT() * R0_it() * f_old(t - 1) + (u_it(t) + u_neumann(t) + u_robin(t)));
                 // impose dirichlet bcs
                 set_dirichlet_bc(b_, t);
                 // solve linear system
-                solve(t, f_new, g_new);
+                solve_it(t, f_new, g_new);
             }
             // at last step g^(k+1,i-1) is zero
-            b_ << PsiTD() * y(n_temporal_locs() - 1),
-              lambda_D() * (lambda_T() / DeltaT() * R0() * f_old(n_temporal_locs() - 2) + (u(n_temporal_locs() - 1) + u_neumann(n_temporal_locs() - 1) + u_robin(n_temporal_locs() - 1)));
+            b_ << PsiTD_it * y_it(n_temporal_locs() - 1),
+              lambda_D() * (lambda_T() / DeltaT() * R0_it() * f_old(n_temporal_locs() - 2) + (u_it(n_temporal_locs() - 1) + u_neumann(n_temporal_locs() - 1) + u_robin(n_temporal_locs() - 1)));
             // impose dirichlet bcs
             set_dirichlet_bc(b_, n_temporal_locs() - 1);
             // solve linear system
-            solve(n_temporal_locs() - 1, f_new, g_new);
+            solve_it(n_temporal_locs() - 1, f_new, g_new);
             // prepare for next iteration
             Jold = Jnew;
             f_old = f_new;
             g_old = g_new;
             Jnew = J(f_old.get(), g_old.get());
-            std::cout << "J = " << Jnew << std::endl;
+            // std::cout << "J = " << Jnew << std::endl;
             i++;
         }
         // store solution
         f_ = f_old.get();
         g_ = g_old.get();
+
+        // prepare solver matrices 
+        if (is_empty(L_)) L_ = Kronecker(L(), pde().mass());
+        
+        // save A_ and invA_ in tensor form
+        A_ = SparseBlockMatrix<double, 2, 2>(
+            -PsiTD() * W() * Psi(), lambda_D() * (R1() + R0_robin() + lambda_T() * L_).transpose(),
+            lambda_D() * (R1() + R0_robin() + lambda_T() * L_), lambda_D() * R0());
+        b_.resize(A_.rows());
+        set_dirichlet_bc(A_, b_);
+        invA_.compute(A_);
+
         return;
+    }
+    // getters
+    const SparseBlockMatrix<double, 2, 2>& A() const { return A_; }
+    const fdapde::SparseLU<SpMatrix<double>>& invA() const { return invA_; }
+    const DVector<double>& b() const { return b_; }
+    double norm(const DMatrix<double>& op1, const DMatrix<double>& op2) const {   // euclidian norm of op1 - op2
+        return (op1 - op2).squaredNorm();
     }
     // setters
     void set_tolerance(double tol) { tol_ = tol; }

@@ -81,6 +81,7 @@ template <typename Model> class SpaceOnlyBase : public ModelBase<Model> {
     // evaluation of penalty term \lambda*(R1^\top*R0^{-1}*R1) at \lambda
     auto P(const SVector<n_lambda>& lambda) const { return lambda[0] * PD(); }
     auto P() const { return P(lambda()); }
+    const DMatrix<int>& matrix_bc_Dirichlet() const { return matrix_bc_Dirichlet_; }
 
     // destructor
     virtual ~SpaceOnlyBase() = default;
@@ -90,6 +91,7 @@ template <typename Model> class SpaceOnlyBase : public ModelBase<Model> {
     mutable fdapde::SparseLU<SpMatrix<double>> invR0_;
     SpMatrix<double> R0_lumped_;   // lumped mass matrix, if mass_lumping == true, empty otherwise
     SVector<n_lambda> lambda_ = SVector<n_lambda>::Zero();
+    DMatrix<int> matrix_bc_Dirichlet_; // matrix that has 1 if a dof is Dirichlet and 0 otherwise
 };
 
 template <typename Model> void SpaceOnlyBase <Model>::set_dirichlet_bc(SparseBlockMatrix<double, 2, 2>& A, DVector<double>& b) {

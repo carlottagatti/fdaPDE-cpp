@@ -42,6 +42,7 @@ class SpaceTimeParabolicBase : public SpaceTimeBase<Model, SpaceTimeParabolic> {
     SpMatrix<double> R0_;       // Im \kron R0 (R0: spatial mass matrix)
     SpMatrix<double> R1_;       // Im \kron R1 (R1: spatial penalty discretization)
     SpMatrix<double> R0_robin_; // Im \kron R0_robin (R0_robin: boundary mass matrix due to Robin bcs)
+    DMatrix<int> matrix_bc_Dirichlet_; // matrix that has 1 if a dof is Dirichlet and 0 otherwise
 
     SpMatrix<double> penT_;                      // discretization of the time derivative: L \kron R0
     fdapde::SparseLU<SpMatrix<double>> invR0_;   // factorization of Im \kron R0
@@ -127,6 +128,7 @@ class SpaceTimeParabolicBase : public SpaceTimeBase<Model, SpaceTimeParabolic> {
     const SpMatrix<double>& R0_robin() const { return R0_robin_; }
     const DMatrix<double>& s() { return s_; }   // initial condition
     double DeltaT() const { return DeltaT_; }
+    const DMatrix<int>& matrix_bc_Dirichlet() const { return matrix_bc_Dirichlet_; }
 
     // computes and cache matrices (Im \kron R0)^{-1} and L \kron R0, returns the discretized penalty P =
     // \lambda_D*((Im \kron R1 + \lambda_T*(L \kron R0))^T*(I_m \kron R0)^{-1}*(Im \kron R1 + \lambda_T*(L \kron R0)))
@@ -144,7 +146,6 @@ class SpaceTimeParabolicBase : public SpaceTimeBase<Model, SpaceTimeParabolic> {
 
 // impose boundary condition to the whole matrix and vector (monolithic approach case)
 template <typename Model> void SpaceTimeParabolicBase<Model>::set_dirichlet_bc(SparseBlockMatrix<double, 2, 2>& A, DVector<double>& b) {
-    // do the is_init thing
 
     std::size_t n_block = A.rows() / 2;
     std::size_t m = time_.rows();
@@ -211,7 +212,6 @@ template <typename Model> void SpaceTimeParabolicBase<Model>::set_dirichlet_bc(S
 
 // impose boundary condition to the whole vector (monolithic approach case)
 template <typename Model> void SpaceTimeParabolicBase<Model>::set_dirichlet_bc(DVector<double>& b) {
-    // do the is_init thing
 
     std::size_t n_block = b.rows() / 2;
     std::size_t m = time_.rows();
@@ -235,7 +235,6 @@ template <typename Model> void SpaceTimeParabolicBase<Model>::set_dirichlet_bc(D
 
 // set dirichlet boundary conditions when solving the problem concerning timestep k
 template <typename Model> void SpaceTimeParabolicBase<Model>::set_dirichlet_bc(SparseBlockMatrix<double, 2, 2>& A, DVector<double>& b, int k) {
-    // do the is_init thing
 
     std::size_t n = A.rows() / 2;
     auto matrix = this->pde().matrix_bc_Dirichlet();
@@ -263,7 +262,6 @@ template <typename Model> void SpaceTimeParabolicBase<Model>::set_dirichlet_bc(S
 
 // set dirichlet boundary conditions to vector b when solving the problem concerning timestep k
 template <typename Model> void SpaceTimeParabolicBase<Model>::set_dirichlet_bc(DVector<double>& b, int k) {
-    // do the is_init thing
 
     std::size_t n = b.rows() / 2;
     auto matrix = this->pde().matrix_bc_Dirichlet();

@@ -35,6 +35,9 @@ class StochasticEDF {
     DMatrix<double> Us_;    // sample from Rademacher distribution
     DMatrix<double> Bs_;    // \Psi^T*Q*Us_
     DMatrix<double> Y_;     // Us_^T*\Psi
+    DMatrix<double> dirichlet_boundary_data_; // Dirichlet bcs in the case model_ = regression + pde regularization
+    DMatrix<int> matrix_dofs_dirichlet_;      // matrix that denotes the Dirichlet boundary nodes in the case model_ = regression + pde regularization
+    int m_=1;                                 // number of timesteps in the case model_ = regression + pde regularization
     int seed_ = fdapde::random_seed;
     bool init_ = false;
    public:
@@ -43,16 +46,23 @@ class StochasticEDF {
         r_(r), seed_((seed == fdapde::random_seed) ? std::random_device()() : seed) { }
     StochasticEDF(std::size_t r) : StochasticEDF(r, std::random_device()()) { }
     StochasticEDF() : StochasticEDF(100) { }
+    StochasticEDF(std::size_t r, int seed, DMatrix<double> dirichlet_boundary_data, DMatrix<int> matrix_dofs_dirichlet, int m=1) :
+        r_(r), seed_((seed == fdapde::random_seed) ? std::random_device()() : seed),
+        dirichlet_boundary_data_(dirichlet_boundary_data), matrix_dofs_dirichlet_(matrix_dofs_dirichlet), m_(m) { }
   
     // evaluate trace of S exploiting a monte carlo approximation
     double compute() {
+        /* std::cout << "size dirichlet_boundary_data_ = " << dirichlet_boundary_data_.rows() << "x" << dirichlet_boundary_data_.cols() << std::endl;
+        std::cout << "size matrix_dofs_dirichlet_ = " << matrix_dofs_dirichlet_.rows() << "x" << matrix_dofs_dirichlet_.cols() << std::endl; */
         if (!init_) {
             // compute sample from Rademacher distribution
             std::mt19937 rng(seed_);
             std::bernoulli_distribution Be(0.5);   // bernulli distribution with parameter p = 0.5
-            Us_.resize(model_.n_locs(), r_);       // preallocate memory for matrix Us
+            int space_n = model_.n_locs();
+            std::cout << model_.n_locs() << " vs " << space_n << std::endl;
+            Us_.resize(space_n, r_);       // preallocate memory for matrix Us
             // fill matrix
-            for (std::size_t i = 0; i < model_.n_locs(); ++i) {
+            for (std::size_t i = 0; i < space_n; ++i) {
                 for (std::size_t j = 0; j < r_; ++j) {
                     if (Be(rng))
                         Us_(i, j) = 1.0;
@@ -60,8 +70,8 @@ class StochasticEDF {
                         Us_(i, j) = -1.0;
                 }
             }
-            std::cout << "Us size = " << Us_.rows() << "x" << Us_.cols() << std::endl;
-            // std::cout << "Psi size = " << model_.Psi().rows() << "x" << model_.Psi().cols() << std::endl;
+            // DMatrix<double> Im = DMatrix<double>::Ones(m_, 1);
+            // Us_ = Kronecker(Im, Us_);
             // prepare matrix Y
             Y_ = Us_.transpose() * model_.Psi();
             init_ = true;   // never reinitialize again
@@ -71,15 +81,29 @@ class StochasticEDF {
         //std::size_t n = model_.n_basis();
         std::size_t n = model_.Psi().cols();
         Bs_ = DMatrix<double>::Zero(2 * n, r_);
-        std::cout << "n = " << n << std::endl;
         std::cout << model_.n_basis() << std::endl;
-        std::cout << "PsiTD size = " << model_.PsiTD().rows() << "x" << model_.PsiTD().cols() << std::endl;
-        std::cout << "W size = " << model_.W().rows() << "x" << model_.W().cols() << std::endl;
         // std::cout << "lmbq us size = " << model_.lmbQ(Us_).rows() << "x" << model_.lmbQ(Us_).cols() << std::endl;
         if (!model_.has_covariates())   // non-parametric model
             Bs_.topRows(n) = -model_.PsiTD() * model_.W() * Us_;
         else   // semi-parametric model
             Bs_.topRows(n) = -model_.PsiTD() * model_.lmbQ(Us_);
+        // set Dirichlet bcs to each column of Bs_
+        if (is_empty(dirichlet_boundary_data_)) std::cout << "EMPTY!" << std::endl;
+        if (!is_empty(dirichlet_boundary_data_)) {
+            std::size_t nn = matrix_dofs_dirichlet_.rows();
+
+            for (size_t k=0; k<r_; ++k) {
+                for (std::size_t i = 0; i < nn; ++i) {
+                    if (matrix_dofs_dirichlet_(i,0) == 1) {
+                        for (std::size_t j = 0; j < m_; ++j){
+                            Bs_(i + j*nn, k) = dirichlet_boundary_data_(i + j*nn, 0);   // impose boundary value to the k-th column of Bs_
+
+                            Y_(k, i + j*nn) = 1;
+                        }
+                    }
+                }
+            }
+        }
 
         DMatrix<double> sol;              // room for problem solution
         if (!model_.has_covariates()) {   // nonparametric case
