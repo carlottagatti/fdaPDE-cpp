@@ -153,7 +153,6 @@ class STRPDE<SpaceTimeParabolic, monolithic> :
         // prepare rhs of linear system
         b_.resize(A_.rows());
         b_.block(A_.rows() / 2, 0, A_.rows() / 2, 1) = lambda_D() * (u() + u_neumann() + u_robin());
-        if (!is_empty(pde_.dirichlet_boundary_data())) matrix_bc_Dirichlet_ = pde_.matrix_bc_Dirichlet();
         return;
     }
     void update_to_weights() {   // update model object in case of changes in the weights matrix
@@ -378,7 +377,7 @@ class STRPDE<SpaceTimeParabolic, iterative> :
         g_ = g_old.get();
 
         // prepare solver matrices 
-        if (is_empty(L_)) L_ = Kronecker(L(), pde().mass());
+        /* if (is_empty(L_)) L_ = Kronecker(L(), pde().mass());
         
         // save A_ and invA_ in tensor form
         A_ = SparseBlockMatrix<double, 2, 2>(
@@ -386,7 +385,7 @@ class STRPDE<SpaceTimeParabolic, iterative> :
             lambda_D() * (R1() + R0_robin() + lambda_T() * L_), lambda_D() * R0());
         b_.resize(A_.rows());
         set_dirichlet_bc(A_, b_);
-        invA_.compute(A_);
+        invA_.compute(A_); */
 
         return;
     }

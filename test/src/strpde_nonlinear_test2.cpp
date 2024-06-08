@@ -14,31 +14,28 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#include <fdaPDE/core.h>
+#include <cstddef>
 #include <gtest/gtest.h>   // testing framework
 
-#include <cstddef>
-using fdapde::core::fem_order;
+#include <fdaPDE/core.h>
+using fdapde::core::advection;
+using fdapde::core::diffusion;
+using fdapde::core::dt;
 using fdapde::core::FEM;
+using fdapde::core::SPLINE;
+using fdapde::core::bilaplacian;
 using fdapde::core::laplacian;
+using fdapde::core::reaction;
 using fdapde::core::PDE;
-using fdapde::core::NonLinearReaction;
-using fdapde::core::LagrangianBasis;
-using fdapde::core::non_linear_op;
+using fdapde::core::Mesh;
+using fdapde::core::spline_order;
 
-#include "../../fdaPDE/models/regression/srpde.h"
 #include "../../fdaPDE/models/regression/strpde_nonlinear.h"
-#include "../../fdaPDE/models/regression/qsrpde.h"
 #include "../../fdaPDE/models/sampling_design.h"
-using fdapde::models::SRPDE;
 using fdapde::models::STRPDE_NonLinear;
-using fdapde::models::QSRPDE;
-using fdapde::models::SpaceOnly;
+using fdapde::models::SpaceTimeSeparable;
+using fdapde::models::SpaceTimeParabolic;
 using fdapde::models::Sampling;
-#include "../../fdaPDE/calibration/kfold_cv.h"
-#include "../../fdaPDE/calibration/rmse.h"
-using fdapde::calibration::KCV;
-using fdapde::calibration::RMSE;
 
 #include "utils/constants.h"
 #include "utils/mesh_loader.h"
@@ -47,6 +44,16 @@ using fdapde::testing::almost_equal;
 using fdapde::testing::MeshLoader;
 using fdapde::testing::read_mtx;
 using fdapde::testing::read_csv;
+using fdapde::core::NonLinearReaction;
+using fdapde::core::LagrangianBasis;
+using fdapde::core::non_linear_op;
+using fdapde::testing::pi;
+
+#include <chrono>
+#include <thread>
+
+
+
 
 // test 1 - method strpde monolithic
 //    domain:       unit square [1,1] x [1,1]
@@ -57,7 +64,7 @@ using fdapde::testing::read_csv;
 //    order FE:     1
 //    time penalization: parabolic (monolithic solver)
 //    exact solution   : (cos(pi*x)*cos(pi*y) + 2)*exp(-t)
-TEST(kcv_strpde_test, laplacian_nonparametric_samplingatnodes_parabolic_strpde_monolithic) {
+TEST(strpde_nonlninear_test2, laplacian_nonparametric_samplingatnodes_parabolic_strpde_monolithic) {
     // define temporal domain
     DVector<double> time_mesh;
     time_mesh.resize(10);
@@ -72,8 +79,8 @@ TEST(kcv_strpde_test, laplacian_nonparametric_samplingatnodes_parabolic_strpde_m
     // }
 
     // import data from files
-    DMatrix<double> locs  = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/ test_nuovo_20/space_locs.csv");
-    DMatrix<double> IC    = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/ test_nuovo_20/IC.csv");
+    DMatrix<double> locs  = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/test_nuovo_10/space_locs.csv");
+    DMatrix<double> IC    = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/test_nuovo_10/IC.csv");
     // define regularizing PDE
     auto L = dt<FEM>() - laplacian<FEM>();
     PDE<decltype(domain.mesh), decltype(L), DMatrix<double>, FEM, fem_order<1>> pde(domain.mesh, time_mesh, L, boundary_matrix);
@@ -115,41 +122,67 @@ TEST(kcv_strpde_test, laplacian_nonparametric_samplingatnodes_parabolic_strpde_m
     // pde.set_neumann_bc(f_neumann);
 
     // save the results in a file
-    std::ofstream file("lambdas20_STRPDE_monolithic.txt");    //it will be exported in the current build directory
+    std::ofstream file("results10_STRPDE_monolithic_newlambda.txt");    //it will be exported in the current build directory
+
+    // read parameters lambda from a file
+    std::ifstream infile("lambdas10_STRPDE_monolithic.txt");
+    if (!infile) {
+        std::cerr << "Unable to open file lambdas.txt";
+    }
+    double value;
+    std::vector<double> lambdas_D;
+    while (infile >> value) {
+        lambdas_D.push_back(value);
+    }
+    infile.close();
 
     int n_obs = 30;
     for (size_t i=1; i<=n_obs; ++i) {
         std::cout << "Iteration " << i << std::endl;
         // define model
+        double lambda_D = lambdas_D[i-1];
+        double lambda_T = 1;
         STRPDE<SpaceTimeParabolic, fdapde::monolithic> model(pde, Sampling::pointwise);
+        model.set_lambda_D(lambda_D);
+        model.set_lambda_T(lambda_T);
         model.set_spatial_locations(locs);
         // set model's data
-        std::string filename = "../data/models/strpde_nonlinear/test nuovo/ test_nuovo_20/y" + std::to_string(i) + ".csv";
+        std::string filename = "../data/models/strpde_nonlinear/test nuovo/test_nuovo_10/y" + std::to_string(i) + ".csv";
         DMatrix<double> y = read_csv<double>(filename);
         BlockFrame<double, int> df;
         df.stack(OBSERVATIONS_BLK, y);
         model.set_data(df);
         // initialize smoothing problem
         model.init();
+        double time = 0;
+        auto start = std::chrono::high_resolution_clock::now();
+        model.solve();
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        time = duration.count();
 
-        // define KCV engine and search for best lambda which minimizes the model's RMSE
-        std::size_t n_folds = 5;
-        int seed = 435642;
-        KCV kcv(n_folds, seed, time_mesh.size(), false);
-        std::vector<DVector<double>> lambdas;
-        for (double x = -5; x <= 0; x += 0.25) {
-            lambdas.push_back(SVector<2>(std::pow(10, x), 1.0));
+        // compute MSE over the grid nodes
+        // create a grid of points different from the sampling points where we can compute the MSE
+        STRPDE<SpaceTimeParabolic, fdapde::iterative> model_grid(pde, Sampling::pointwise);
+        DMatrix<double> grid = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/space_locs_grid.csv");
+        model_grid.set_spatial_locations(grid);
+        model_grid.init_sampling(true);  // evalute Psi() in the new grid
+        // compute MSE over the grid
+        DVector<double> f_grid(grid.rows(), 1);
+        f_grid = model_grid.Psi()*model.f();
+        DMatrix<double> sol_grid = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/sol_grid.csv");
+        double MSE_grid = 0;
+        int n = f_grid.rows();
+        for (size_t i=0; i<n; ++i)
+        {
+            MSE_grid += (sol_grid(i) - f_grid(i))*(sol_grid(i) - f_grid(i)) / (n);
         }
-        kcv.fit(model, lambdas, RMSE(model));
-
-        std::cout << kcv.optimum() << std::endl;
-        std::cout << kcv.avg_scores() << std::endl;
-        file << kcv.optimum()[0] << '\n';
+        file << "\"" << i+150 << "\" " << 1000 << " \"method1\" " << time << " " << MSE_grid << "\n";
+        // file << model.f();
     }
 
     file.close();
 }
-
 
 // test 1 - method strpde iterative
 //    domain:       unit square [1,1] x [1,1]
@@ -160,7 +193,7 @@ TEST(kcv_strpde_test, laplacian_nonparametric_samplingatnodes_parabolic_strpde_m
 //    order FE:     1
 //    time penalization: parabolic (itervative solver)
 //    exact solution   : (cos(pi*x)*cos(pi*y) + 2)*exp(-t)
-TEST(kcv_strpde_test, laplacian_nonparametric_samplingatnodes_parabolic_strpde_iterative) {
+TEST(strpde_nonlninear_test2, laplacian_nonparametric_samplingatnodes_parabolic_strpde_iterative) {
     // define temporal domain
     DVector<double> time_mesh;
     time_mesh.resize(10);
@@ -175,8 +208,8 @@ TEST(kcv_strpde_test, laplacian_nonparametric_samplingatnodes_parabolic_strpde_i
     // }
 
     // import data from files
-    DMatrix<double> locs  = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/ test_nuovo_20/space_locs.csv");
-    DMatrix<double> IC    = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/ test_nuovo_20/IC.csv");
+    DMatrix<double> locs  = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/test_nuovo_10/space_locs.csv");
+    DMatrix<double> IC    = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/test_nuovo_10/IC.csv");
     // define regularizing PDE
     auto L = dt<FEM>() - laplacian<FEM>();
     PDE<decltype(domain.mesh), decltype(L), DMatrix<double>, FEM, fem_order<1>> pde(domain.mesh, time_mesh, L, boundary_matrix);
@@ -218,16 +251,32 @@ TEST(kcv_strpde_test, laplacian_nonparametric_samplingatnodes_parabolic_strpde_i
     // pde.set_neumann_bc(f_neumann);
 
     // save the results in a file
-    std::ofstream file("lambdas20_STRPDE_iterative.txt");    //it will be exported in the current build directory
+    std::ofstream file("results10_STRPDE_iterative_newlambda.txt");    //it will be exported in the current build directory
+
+    // read parameters lambda from a file
+    std::ifstream infile("lambdas10_STRPDE_iterative.txt");
+    if (!infile) {
+        std::cerr << "Unable to open file lambdas.txt";
+    }
+    double value;
+    std::vector<double> lambdas_D;
+    while (infile >> value) {
+        lambdas_D.push_back(value);
+    }
+    infile.close();
 
     int n_obs = 30;
     for (size_t i=1; i<=n_obs; ++i) {
         std::cout << "Iteration " << i << std::endl;
         // define model
+        double lambda_D = lambdas_D[i-1];
+        double lambda_T = 1;
         STRPDE<SpaceTimeParabolic, fdapde::iterative> model(pde, Sampling::pointwise);
+        model.set_lambda_D(lambda_D);
+        model.set_lambda_T(lambda_T);
         model.set_spatial_locations(locs);
         // set model's data
-        std::string filename = "../data/models/strpde_nonlinear/test nuovo/ test_nuovo_20/y" + std::to_string(i) + ".csv";
+        std::string filename = "../data/models/strpde_nonlinear/test nuovo/test_nuovo_10/y" + std::to_string(i) + ".csv";
         DMatrix<double> y = read_csv<double>(filename);
         BlockFrame<double, int> df;
         df.stack(OBSERVATIONS_BLK, y);
@@ -237,19 +286,31 @@ TEST(kcv_strpde_test, laplacian_nonparametric_samplingatnodes_parabolic_strpde_i
         model.set_max_iter(50);
         // initialize smoothing problem
         model.init();
+        double time = 0;
+        auto start = std::chrono::high_resolution_clock::now();
+        model.solve();
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        time = duration.count();
 
-        // define KCV engine and search for best lambda which minimizes the model's RMSE
-        std::size_t n_folds = 5;
-        int seed = 435642;
-        KCV kcv(n_folds, seed, time_mesh.size(), false);
-        std::vector<DVector<double>> lambdas;
-        for (double x = -5; x <= 0; x += 0.25) {
-            lambdas.push_back(SVector<2>(std::pow(10, x), 1.0));
+        // compute MSE over the grid nodes
+        // create a grid of points different from the sampling points where we can compute the MSE
+        STRPDE<SpaceTimeParabolic, fdapde::iterative> model_grid(pde, Sampling::pointwise);
+        DMatrix<double> grid = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/space_locs_grid.csv");
+        model_grid.set_spatial_locations(grid);
+        model_grid.init_sampling(true);  // evalute Psi() in the new grid
+        // compute MSE over the grid
+        DVector<double> f_grid(grid.rows(), 1);
+        f_grid = model_grid.Psi()*model.f();
+        DMatrix<double> sol_grid = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/sol_grid.csv");
+        double MSE_grid = 0;
+        int n = f_grid.rows();
+        for (size_t i=0; i<n; ++i)
+        {
+            MSE_grid += (sol_grid(i) - f_grid(i))*(sol_grid(i) - f_grid(i)) / (n);
         }
-        kcv.fit(model, lambdas, RMSE(model));
-
-        std::cout << kcv.optimum() << std::endl;
-        file << kcv.optimum()[0] << '\n';
+        file << "\"" << i+30+150 << "\" " << 1000 << " \"method2\" " << time << " " << MSE_grid << "\n";
+        // file << model.f();
     }
 
     file.close();
@@ -264,7 +325,7 @@ TEST(kcv_strpde_test, laplacian_nonparametric_samplingatnodes_parabolic_strpde_i
 //    order FE:     1
 //    time penalization: parabolic (iterative_EI solver)
 //    exact solution   : (cos(pi*x)*cos(pi*y) + 2)*exp(-t)
-TEST(kcv_strpde_test, laplacian_nonparametric_samplingatnodes_parabolic_iterative_EI) {
+TEST(strpde_nonlninear_test2, laplacian_nonparametric_samplingatnodes_parabolic_iterative_EI) {
     // define temporal domain
     DVector<double> time_mesh;
     time_mesh.resize(10);
@@ -278,8 +339,8 @@ TEST(kcv_strpde_test, laplacian_nonparametric_samplingatnodes_parabolic_iterativ
     //     boundary_matrix(20 + 21*j, 0) = 1;
     // }
     // import data from files
-    DMatrix<double> locs  = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/ test_nuovo_20/space_locs.csv");
-    DMatrix<double> IC    = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/ test_nuovo_20/IC.csv");
+    DMatrix<double> locs  = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/test_nuovo_10/space_locs.csv");
+    DMatrix<double> IC    = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/test_nuovo_10/IC.csv");
     // define regularizing PDE
     double alpha = 7;
     std::function<double(SVector<1>)> h_ = [&](SVector<1> ff) -> double {return 20/(5 + ff[0]);};
@@ -322,16 +383,32 @@ TEST(kcv_strpde_test, laplacian_nonparametric_samplingatnodes_parabolic_iterativ
     // }
     // pde.set_neumann_bc(f_neumann);
 
-    std::ofstream file("lambdas20_NLSTRPDE_iterativeEI.txt");    //it will be exported in the current build directory
+    std::ofstream file("results10_NLSTRPDE_iterativeEI_newlambda.txt");    //it will be exported in the current build directory
+
+    // read parameters lambda from a file
+    std::ifstream infile("lambdas10_NLSTRPDE_iterativeEI.txt");
+    if (!infile) {
+        std::cerr << "Unable to open file lambdas.txt";
+    }
+    double value;
+    std::vector<double> lambdas_D;
+    while (infile >> value) {
+        lambdas_D.push_back(value);
+    }
+    infile.close();
 
     int n_obs = 30;
     for (size_t i=1; i<=n_obs; ++i) {
-        std::cout << "Iteration " << i << std::endl;
+        // std::cout << "Iteration " << i << std::endl;
         // define model
+        double lambda_D = lambdas_D[i-1];
+        double lambda_T = 1;
         STRPDE_NonLinear<SpaceTimeParabolic, fdapde::iterative_EI> model(pde, Sampling::pointwise);
+        model.set_lambda_D(lambda_D);
+        model.set_lambda_T(lambda_T);
         model.set_spatial_locations(locs);
         // set model's data
-        std::string filename = "../data/models/strpde_nonlinear/test nuovo/ test_nuovo_20/y" + std::to_string(i) + ".csv";
+        std::string filename = "../data/models/strpde_nonlinear/test nuovo/test_nuovo_10/y" + std::to_string(i) + ".csv";
         DMatrix<double> y = read_csv<double>(filename);
         BlockFrame<double, int> df;
         df.stack(OBSERVATIONS_BLK, y);
@@ -341,19 +418,31 @@ TEST(kcv_strpde_test, laplacian_nonparametric_samplingatnodes_parabolic_iterativ
         model.set_max_iter(50);
         // initialize smoothing problem
         model.init();
+        double time = 0;
+        auto start = std::chrono::high_resolution_clock::now();
+        model.solve();
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        time = duration.count();
 
-        // define KCV engine and search for best lambda which minimizes the model's RMSE
-        std::size_t n_folds = 5;
-        int seed = 435642;
-        KCV kcv(n_folds, seed, time_mesh.size(), false);
-        std::vector<DVector<double>> lambdas;
-        for (double x = -5; x <= 0; x += 0.25) {
-            lambdas.push_back(SVector<2>(std::pow(10, x), 1.0));
+        // compute MSE over the grid nodes
+        // create a grid of points different from the sampling points where we can compute the MSE
+        STRPDE<SpaceTimeParabolic, fdapde::iterative> model_grid(pde, Sampling::pointwise);
+        DMatrix<double> grid = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/space_locs_grid.csv");
+        model_grid.set_spatial_locations(grid);
+        model_grid.init_sampling(true);  // evalute Psi() in the new grid
+        // compute MSE over the grid
+        DVector<double> f_grid(grid.rows(), 1);
+        f_grid = model_grid.Psi()*model.f();
+        DMatrix<double> sol_grid = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/sol_grid.csv");
+        double MSE_grid = 0;
+        int n = f_grid.rows();
+        for (size_t i=0; i<n; ++i)
+        {
+            MSE_grid += (sol_grid(i) - f_grid(i))*(sol_grid(i) - f_grid(i)) / (n);
         }
-        kcv.fit(model, lambdas, RMSE(model));
-
-        std::cout << kcv.optimum() << std::endl;
-        file << kcv.optimum()[0] << '\n';
+        file << "\"" << i+120+150 << "\" " << 1000 << " \"method5\" " << time << " " << MSE_grid << "\n";
+        // file << model.f();
     }
 
     file.close();
@@ -368,7 +457,7 @@ TEST(kcv_strpde_test, laplacian_nonparametric_samplingatnodes_parabolic_iterativ
 //    order FE:     1
 //    time penalization: parabolic (iterative solver)
 //    exact solution   : (cos(pi*x)*cos(pi*y) + 2)*exp(-t)
-TEST(kcv_strpde_test, laplacian_nonparametric_samplingatnodes_parabolic_iterative) {
+TEST(strpde_nonlninear_test2, laplacian_nonparametric_samplingatnodes_parabolic_iterative) {
     // define temporal domain
     DVector<double> time_mesh;
     time_mesh.resize(10);
@@ -382,8 +471,8 @@ TEST(kcv_strpde_test, laplacian_nonparametric_samplingatnodes_parabolic_iterativ
     //     boundary_matrix(20 + 21*j, 0) = 1;
     // }
     // import data from files
-    DMatrix<double> locs  = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/ test_nuovo_20/space_locs.csv");
-    DMatrix<double> IC    = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/ test_nuovo_20/IC.csv");
+    DMatrix<double> locs  = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/test_nuovo_10/space_locs.csv");
+    DMatrix<double> IC    = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/test_nuovo_10/IC.csv");
     // define regularizing PDE
     double alpha = 7;
     std::function<double(SVector<1>)> h_ = [&](SVector<1> ff) -> double {return 20/(5 + ff[0]);};
@@ -426,16 +515,32 @@ TEST(kcv_strpde_test, laplacian_nonparametric_samplingatnodes_parabolic_iterativ
     // }
     // pde.set_neumann_bc(f_neumann);
 
-    std::ofstream file("lambdas20_NLSTRPDE_iterative.txt");    //it will be exported in the current build directory
+    std::ofstream file("results10_NLSTRPDE_iterative_newlambda.txt");    //it will be exported in the current build directory
+
+    // read parameters lambda from a file
+    std::ifstream infile("lambdas10_NLSTRPDE_iterative.txt");
+    if (!infile) {
+        std::cerr << "Unable to open file lambdas.txt";
+    }
+    double value;
+    std::vector<double> lambdas_D;
+    while (infile >> value) {
+        lambdas_D.push_back(value);
+    }
+    infile.close();
 
     int n_obs = 30;
     for (size_t i=1; i<=n_obs; ++i) {
-        std::cout << "Iteration " << i << std::endl;
+        // std::cout << "Iteration " << i << std::endl;
         // define model
+        double lambda_D = lambdas_D[i-1];
+        double lambda_T = 1;
         STRPDE_NonLinear<SpaceTimeParabolic, fdapde::iterative> model(pde, Sampling::pointwise);
+        model.set_lambda_D(lambda_D);
+        model.set_lambda_T(lambda_T);
         model.set_spatial_locations(locs);
         // set model's data
-        std::string filename = "../data/models/strpde_nonlinear/test nuovo/ test_nuovo_20/y" + std::to_string(i) + ".csv";
+        std::string filename = "../data/models/strpde_nonlinear/test nuovo/test_nuovo_10/y" + std::to_string(i) + ".csv";
         DMatrix<double> y = read_csv<double>(filename);
         BlockFrame<double, int> df;
         df.stack(OBSERVATIONS_BLK, y);
@@ -445,34 +550,31 @@ TEST(kcv_strpde_test, laplacian_nonparametric_samplingatnodes_parabolic_iterativ
         model.set_max_iter(50);
         // initialize smoothing problem
         model.init();
+        double time = 0;
+        auto start = std::chrono::high_resolution_clock::now();
+        model.solve();
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        time = duration.count();
 
-        // define KCV engine and search for best lambda which minimizes the model's RMSE
-        std::size_t n_folds = 5;
-        int seed = 435642;
-        KCV kcv(n_folds, seed, time_mesh.size(), false);
-        std::vector<DVector<double>> lambdas;
-        for (double x = -5; x <= 0; x += 0.25) {
-            lambdas.push_back(SVector<2>(std::pow(10, x), 1.0));
+        // compute MSE over the grid nodes
+        // create a grid of points different from the sampling points where we can compute the MSE
+        STRPDE<SpaceTimeParabolic, fdapde::iterative> model_grid(pde, Sampling::pointwise);
+        DMatrix<double> grid = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/space_locs_grid.csv");
+        model_grid.set_spatial_locations(grid);
+        model_grid.init_sampling(true);  // evalute Psi() in the new grid
+        // compute MSE over the grid
+        DVector<double> f_grid(grid.rows(), 1);
+        f_grid = model_grid.Psi()*model.f();
+        DMatrix<double> sol_grid = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/sol_grid.csv");
+        double MSE_grid = 0;
+        int n = f_grid.rows();
+        for (size_t i=0; i<n; ++i)
+        {
+            MSE_grid += (sol_grid(i) - f_grid(i))*(sol_grid(i) - f_grid(i)) / (n);
         }
-        kcv.fit(model, lambdas, RMSE(model));
-
-        std::cout << kcv.optimum() << std::endl;
-        // std::cout << kcv.avg_scores() << std::endl;
-        file << kcv.optimum()[0] << '\n';
-
-        // define MinRMSE
-        // MinRMSE min_rmse;
-        // std::vector<DVector<double>> lambdas;
-        // for (double x = -2.0; x >= -4; x -= 0.25) {
-        //     lambdas.push_back(SVector<2>(std::pow(10, x), 1.0));
-        // }
-        // std::cout << "debug" << std::endl;
-        // min_rmse.fit(model, lambdas);
-        // std::cout << "debug" << std::endl;
-
-        // std::cout << min_rmse.optimum() << std::endl;
-        // std::cout << min_rmse.scores() << std::endl;
-        //file << min_rmse.optimum()[0] << '\n';
+        file << "\"" << i+90+150 << "\" " << 1000 << " \"method4\" " << time << " " << MSE_grid << "\n";
+        // file << model.f();
     }
 
     file.close();
@@ -488,8 +590,8 @@ TEST(kcv_strpde_test, laplacian_nonparametric_samplingatnodes_parabolic_iterativ
 //    order FE:     1
 //    time penalization: parabolic (monolithic solver)
 //    exact solution   : (cos(pi*x)*cos(pi*y) + 2)*exp(-t)
-TEST(kcv_strpde_test, laplacian_nonparametric_samplingatnodes_parabolic_monolithic) {
-   // define temporal domain
+TEST(strpde_nonlninear_test2, laplacian_nonparametric_samplingatnodes_parabolic_monolithic) {
+    // define temporal domain
     DVector<double> time_mesh;
     time_mesh.resize(10);
     for (std::size_t i = 0; i < time_mesh.size(); ++i) time_mesh[i] = (0.1)*(i+1);
@@ -502,8 +604,8 @@ TEST(kcv_strpde_test, laplacian_nonparametric_samplingatnodes_parabolic_monolith
     //     boundary_matrix(20 + 21*j, 0) = 1;
     // }
     // import data from files
-    DMatrix<double> locs  = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/ test_nuovo_20/space_locs.csv");
-    DMatrix<double> IC    = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/ test_nuovo_20/IC.csv");
+    DMatrix<double> locs  = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/test_nuovo_10/space_locs.csv");
+    DMatrix<double> IC    = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/test_nuovo_10/IC.csv");
     // define regularizing PDE
     double alpha = 7;
     std::function<double(SVector<1>)> h_ = [&](SVector<1> ff) -> double {return 20/(5 + ff[0]);};
@@ -546,16 +648,32 @@ TEST(kcv_strpde_test, laplacian_nonparametric_samplingatnodes_parabolic_monolith
     // }
     // pde.set_neumann_bc(f_neumann);
 
-    std::ofstream file("lambdas20_NLSTRPDE_monolithic.txt");    //it will be exported in the current build directory
+    std::ofstream file("results10_NLSTRPDE_monolithic_newlambda.txt");    //it will be exported in the current build directory
+
+    // read parameters lambda from a file
+    std::ifstream infile("lambdas10_NLSTRPDE_monolithic.txt");
+    if (!infile) {
+        std::cerr << "Unable to open file lambdas.txt";
+    }
+    double value;
+    std::vector<double> lambdas_D;
+    while (infile >> value) {
+        lambdas_D.push_back(value);
+    }
+    infile.close();
 
     int n_obs = 30;
     for (size_t i=1; i<=n_obs; ++i) {
-        std::cout << "Iteration " << i << std::endl;
+        // std::cout << "Iteration " << i << std::endl;
         // define model
+        double lambda_D = lambdas_D[i-1];
+        double lambda_T = 1;
         STRPDE_NonLinear<SpaceTimeParabolic, fdapde::monolithic> model(pde, Sampling::pointwise);
+        model.set_lambda_D(lambda_D);
+        model.set_lambda_T(lambda_T);
         model.set_spatial_locations(locs);
         // set model's data
-        std::string filename = "../data/models/strpde_nonlinear/test nuovo/ test_nuovo_20/y" + std::to_string(i) + ".csv";
+        std::string filename = "../data/models/strpde_nonlinear/test nuovo/test_nuovo_10/y" + std::to_string(i) + ".csv";
         DMatrix<double> y = read_csv<double>(filename);
         BlockFrame<double, int> df;
         df.stack(OBSERVATIONS_BLK, y);
@@ -565,20 +683,31 @@ TEST(kcv_strpde_test, laplacian_nonparametric_samplingatnodes_parabolic_monolith
         model.set_max_iter(15);
         // initialize smoothing problem
         model.init();
+        double time = 0;
+        auto start = std::chrono::high_resolution_clock::now();
+        model.solve();
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        time = duration.count();
 
-        // define KCV engine and search for best lambda which minimizes the model's RMSE
-        std::size_t n_folds = 5;
-        int seed = 435642;
-        KCV kcv(n_folds, seed, time_mesh.size(), false);
-        std::vector<DVector<double>> lambdas;
-        for (double x = -5; x <= 0; x += 0.25) {
-            lambdas.push_back(SVector<2>(std::pow(10, x), 1.0));
+        // compute MSE over the grid nodes
+        // create a grid of points different from the sampling points where we can compute the MSE
+        STRPDE<SpaceTimeParabolic, fdapde::iterative> model_grid(pde, Sampling::pointwise);
+        DMatrix<double> grid = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/space_locs_grid.csv");
+        model_grid.set_spatial_locations(grid);
+        model_grid.init_sampling(true);  // evalute Psi() in the new grid
+        // compute MSE over the grid
+        DVector<double> f_grid(grid.rows(), 1);
+        f_grid = model_grid.Psi()*model.f();
+        DMatrix<double> sol_grid = read_csv<double>("../data/models/strpde_nonlinear/test nuovo/sol_grid.csv");
+        double MSE_grid = 0;
+        int n = f_grid.rows();
+        for (size_t i=0; i<n; ++i)
+        {
+            MSE_grid += (sol_grid(i) - f_grid(i))*(sol_grid(i) - f_grid(i)) / (n);
         }
-        kcv.fit(model, lambdas, RMSE(model));
-
-        std::cout << kcv.optimum() << std::endl;
-        std::cout << kcv.avg_scores() << std::endl;
-        file << kcv.optimum()[0] << '\n';
+        file << "\"" << i+60+150 << "\" " << 1000 << " \"method3\" " << time << " " << MSE_grid << "\n";
+        // file << model.f();
     }
 
     file.close();

@@ -38,6 +38,7 @@ class KCV : public CalibratorBase<KCV> {
     std::size_t K_;      // number of folds
     std::size_t seed_;   // seed used for BlockFrame shuffling
     bool shuffle_;       // whether to shuffle data before splitting into folds
+    int m_=1;              // number of time in steps for pde data
 
     DVector<double> avg_scores_;   // mean CV score for each \lambda
     DVector<double> std_scores_;   // CV score standard deviation for each \lambda
@@ -47,17 +48,19 @@ class KCV : public CalibratorBase<KCV> {
     // produces a bit_mask identifying the i-th fold to be supplied to the model via mask_obs
     using TrainTestPartition = std::pair<BinaryVector<Dynamic>, BinaryVector<Dynamic>>;
     TrainTestPartition split(const BlockFrame<double, int>& data, std::size_t i) {
-        std::size_t n = data.rows();          // number of data points
+        std::size_t n = data.rows()/m_;          // number of data points
         std::size_t m = std::floor(n / K_);   // number of data per fold
 
         // create test-train index sets, as function of test fold i
-        BinaryVector<Dynamic> test_mask(n);
-	BinaryVector<Dynamic> train_mask(n);
-        for (std::size_t j = 0; j < n; ++j) {
-            if (j >= m * i && j < m * (i + 1)) {
-                test_mask.set(j);
-            } else {
-                train_mask.set(j);
+        BinaryVector<Dynamic> test_mask(n*m_);
+	    BinaryVector<Dynamic> train_mask(n*m_);
+        for (std::size_t t=0; t<m_; t++){  // cycle over time
+            for (std::size_t j = 0; j < n; ++j) {
+                if (j >= m * i && j < m * (i + 1)) {
+                    test_mask.set(j + t*n);
+                } else {
+                    train_mask.set(j + t*n);
+                }
             }
         }
         return std::make_pair(train_mask, test_mask);
@@ -66,8 +69,8 @@ class KCV : public CalibratorBase<KCV> {
     // constructor
     KCV() = default;
     KCV(std::size_t K, bool shuffle = true) : K_(K), seed_(std::random_device()()), shuffle_(shuffle) {};
-    KCV(std::size_t K, int seed, bool shuffle = true) :
-        K_(K), seed_((seed == fdapde::random_seed) ? std::random_device()() : seed), shuffle_(shuffle) {};
+    KCV(std::size_t K, int seed, int m=1, bool shuffle = true) :
+        K_(K), seed_((seed == fdapde::random_seed) ? std::random_device()() : seed), m_(m), shuffle_(shuffle) {};
 
     // selects best smoothing parameter of model according to a K-fold cross validation strategy
     template <typename ModelType, typename ScoreType>

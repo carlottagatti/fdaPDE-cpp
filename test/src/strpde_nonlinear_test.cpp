@@ -79,8 +79,8 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_s
     // }
 
     // import data from files
-    DMatrix<double> locs  = read_csv<double>("../data/models/strpde_nonlinear/test1_5/space_locs.csv");
-    DMatrix<double> IC    = read_csv<double>("../data/models/strpde_nonlinear/test1_5/IC.csv");
+    DMatrix<double> locs  = read_csv<double>("../data/models/strpde_nonlinear/test1_10/space_locs.csv");
+    DMatrix<double> IC    = read_csv<double>("../data/models/strpde_nonlinear/test1_10/IC.csv");
     // DMatrix<double> y  = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/y.csv");
     // DMatrix<double> IC = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/IC.csv");
     // define regularizing PDE
@@ -130,18 +130,18 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_s
     // save the results in a file
     std::ofstream file("results_STRPDE_monolithic.txt");    //it will be exported in the current build directory
 
-    int n_obs = 30;
+    int n_obs = 1;
     for (size_t i=1; i<=n_obs; ++i) {
         std::cout << "Iteration " << i << std::endl;
         // define model
         double lambda_D = 0.001;
         double lambda_T = 1;
-        STRPDE_NonLinear<SpaceTimeParabolic, fdapde::monolithic> model(pde, Sampling::pointwise);
+        STRPDE<SpaceTimeParabolic, fdapde::monolithic> model(pde, Sampling::pointwise);
         model.set_lambda_D(lambda_D);
         model.set_lambda_T(lambda_T);
         model.set_spatial_locations(locs);
         // set model's data
-        std::string filename = "../data/models/strpde_nonlinear/test1_5/y" + std::to_string(i) + ".csv";
+        std::string filename = "../data/models/strpde_nonlinear/test1_10/y" + std::to_string(i) + ".csv";
         DMatrix<double> y = read_csv<double>(filename);
         BlockFrame<double, int> df;
         df.stack(OBSERVATIONS_BLK, y);
@@ -175,7 +175,8 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_s
         {
             MSE_grid += (sol_grid(i) - f_grid(i))*(sol_grid(i) - f_grid(i)) / (n);
         }
-        file << "\"" << i << "\" " << 1000 << " \"method1\" " << time << " " << MSE_grid << "\n";
+        // file << "\"" << i << "\" " << 1000 << " \"method1\" " << time << " " << MSE_grid << "\n";
+        file << model.f();
         // std::cout << "MSE_grid = " << MSE_grid << std::endl;
         // std::cout << "inf_norm error in sgrid points = " << (f_grid - sol_grid).lpNorm<Eigen::Infinity>() << std::endl;
 
@@ -222,8 +223,8 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_s
     // }
 
     // import data from files
-    DMatrix<double> locs  = read_csv<double>("../data/models/strpde_nonlinear/test1_5/space_locs.csv");
-    DMatrix<double> IC    = read_csv<double>("../data/models/strpde_nonlinear/test1_5/IC.csv");
+    DMatrix<double> locs  = read_csv<double>("../data/models/strpde_nonlinear/test1_10/space_locs.csv");
+    DMatrix<double> IC    = read_csv<double>("../data/models/strpde_nonlinear/test1_10/IC.csv");
     // DMatrix<double> y  = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/y.csv");
     // DMatrix<double> IC = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/IC.csv");
     // define regularizing PDE
@@ -272,18 +273,18 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_s
 
     std::ofstream file("results_STRPDE_iterative.txt");    //it will be exported in the current build directory
 
-    int n_obs = 30;
+    int n_obs = 1;
     for (size_t i=1; i<=n_obs; ++i) {
         // std::cout << "Iteration " << i << std::endl;
         // define model
         double lambda_D = 0.001;
         double lambda_T = 1;
-        STRPDE_NonLinear<SpaceTimeParabolic, fdapde::iterative> model(pde, Sampling::pointwise);
+        STRPDE<SpaceTimeParabolic, fdapde::iterative> model(pde, Sampling::pointwise);
         model.set_lambda_D(lambda_D);
         model.set_lambda_T(lambda_T);
         model.set_spatial_locations(locs);
         // set model's data
-        std::string filename = "../data/models/strpde_nonlinear/test1_5/y" + std::to_string(i) + ".csv";
+        std::string filename = "../data/models/strpde_nonlinear/test1_10/y" + std::to_string(i) + ".csv";
         DMatrix<double> y = read_csv<double>(filename);
         BlockFrame<double, int> df;
         df.stack(OBSERVATIONS_BLK, y);
@@ -317,7 +318,8 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_s
         {
             MSE_grid += (sol_grid(i) - f_grid(i))*(sol_grid(i) - f_grid(i)) / (n);
         }
-        file << "\"" << i+30 << "\" " << 1000 << " \"method2\" " << time << " " << MSE_grid << "\n";
+        // file << "\"" << i+30 << "\" " << 1000 << " \"method2\" " << time << " " << MSE_grid << "\n";
+        file << model.f();
         // std::cout << "MSE_grid = " << MSE_grid << std::endl;
         // std::cout << "inf_norm error in sgrid points = " << (f_grid - sol_grid).lpNorm<Eigen::Infinity>() << std::endl;
 
@@ -363,8 +365,8 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_i
     //     boundary_matrix(20 + 21*j, 0) = 1;
     // }
     // import data from files
-    DMatrix<double> locs  = read_csv<double>("../data/models/strpde_nonlinear/test1_5/space_locs.csv");
-    DMatrix<double> IC    = read_csv<double>("../data/models/strpde_nonlinear/test1_5/IC.csv");
+    DMatrix<double> locs  = read_csv<double>("../data/models/strpde_nonlinear/test1_10/space_locs.csv");
+    DMatrix<double> IC    = read_csv<double>("../data/models/strpde_nonlinear/test1_10/IC.csv");
     // DMatrix<double> y  = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/y.csv");
     // DMatrix<double> IC = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/IC.csv");
     // define regularizing PDE
@@ -415,18 +417,18 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_i
 
     std::ofstream file("results_NLSTRPDE_iterativeEI.txt");    //it will be exported in the current build directory
 
-    int n_obs = 30;
+    int n_obs = 1;
     for (size_t i=1; i<=n_obs; ++i) {
         // std::cout << "Iteration " << i << std::endl;
         // define model
-        double lambda_D = 1;
+        double lambda_D = 0.01;
         double lambda_T = 1;
         STRPDE_NonLinear<SpaceTimeParabolic, fdapde::iterative_EI> model(pde, Sampling::pointwise);
         model.set_lambda_D(lambda_D);
         model.set_lambda_T(lambda_T);
         model.set_spatial_locations(locs);
         // set model's data
-        std::string filename = "../data/models/strpde_nonlinear/test1_5/y" + std::to_string(i) + ".csv";
+        std::string filename = "../data/models/strpde_nonlinear/test1_10/y" + std::to_string(i) + ".csv";
         DMatrix<double> y = read_csv<double>(filename);
         BlockFrame<double, int> df;
         df.stack(OBSERVATIONS_BLK, y);
@@ -460,7 +462,8 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_i
         {
             MSE_grid += (sol_grid(i) - f_grid(i))*(sol_grid(i) - f_grid(i)) / (n);
         }
-        file << "\"" << i+120 << "\" " << 1000 << " \"method5\" " << time << " " << MSE_grid << "\n";
+        // file << "\"" << i+120 << "\" " << 1000 << " \"method5\" " << time << " " << MSE_grid << "\n";
+        file << model.f();
         // std::cout << "MSE_grid = " << MSE_grid << std::endl;
         // std::cout << "inf_norm error in sgrid points = " << (f_grid - sol_grid).lpNorm<Eigen::Infinity>() << std::endl;
 
@@ -507,8 +510,8 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_i
     // }
 
     // import data from files
-    DMatrix<double> locs  = read_csv<double>("../data/models/strpde_nonlinear/test1_5/space_locs.csv");
-    DMatrix<double> IC    = read_csv<double>("../data/models/strpde_nonlinear/test1_5/IC.csv");
+    DMatrix<double> locs  = read_csv<double>("../data/models/strpde_nonlinear/test1_10/space_locs.csv");
+    DMatrix<double> IC    = read_csv<double>("../data/models/strpde_nonlinear/test1_10/IC.csv");
     // DMatrix<double> y  = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/y.csv");
     // DMatrix<double> IC = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/IC.csv");
     // define regularizing PDE
@@ -559,18 +562,18 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_i
 
     std::ofstream file("results_NLSTRPDE_iterative.txt");    //it will be exported in the current build directory
 
-    int n_obs = 30;
+    int n_obs = 1;
     for (size_t i=1; i<=n_obs; ++i) {
         // std::cout << "Iteration " << i << std::endl;
         // define model
-        double lambda_D = 1;
+        double lambda_D = 0.01;
         double lambda_T = 1;
         STRPDE_NonLinear<SpaceTimeParabolic, fdapde::iterative> model(pde, Sampling::pointwise);
         model.set_lambda_D(lambda_D);
         model.set_lambda_T(lambda_T);
         model.set_spatial_locations(locs);
         // set model's data
-        std::string filename = "../data/models/strpde_nonlinear/test1_5/y" + std::to_string(i) + ".csv";
+        std::string filename = "../data/models/strpde_nonlinear/test1_10/y" + std::to_string(i) + ".csv";
         DMatrix<double> y = read_csv<double>(filename);
         BlockFrame<double, int> df;
         df.stack(OBSERVATIONS_BLK, y);
@@ -604,7 +607,8 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_i
         {
             MSE_grid += (sol_grid(i) - f_grid(i))*(sol_grid(i) - f_grid(i)) / (n);
         }
-        file << "\"" << i+90 << "\" " << 1000 << " \"method4\" " << time << " " << MSE_grid << "\n";
+        // file << "\"" << i+90 << "\" " << 1000 << " \"method4\" " << time << " " << MSE_grid << "\n";
+        file << model.f();
         // std::cout << "MSE_grid = " << MSE_grid << std::endl;
         // std::cout << "inf_norm error in sgrid points = " << (f_grid - sol_grid).lpNorm<Eigen::Infinity>() << std::endl;
 
@@ -651,8 +655,8 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_m
     //     boundary_matrix(20 + 21*j, 0) = 1;
     // }
     // import data from files
-    DMatrix<double> locs  = read_csv<double>("../data/models/strpde_nonlinear/test1_5/space_locs.csv");
-    DMatrix<double> IC    = read_csv<double>("../data/models/strpde_nonlinear/test1_5/IC.csv");
+    DMatrix<double> locs  = read_csv<double>("../data/models/strpde_nonlinear/test1_10/space_locs.csv");
+    DMatrix<double> IC    = read_csv<double>("../data/models/strpde_nonlinear/test1_10/IC.csv");
     // DMatrix<double> y  = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/y.csv");
     // DMatrix<double> IC = read_csv<double>("../data/models/strpde_nonlinear/2D_test1_coarse/second case/IC.csv");
     // define regularizing PDE
@@ -703,18 +707,18 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_m
 
     std::ofstream file("results_NLSTRPDE_monolithic.txt");    //it will be exported in the current build directory
 
-    int n_obs = 30;
+    int n_obs = 1;
     for (size_t i=1; i<=n_obs; ++i) {
         // std::cout << "Iteration " << i << std::endl;
         // define model
-        double lambda_D = 1;
+        double lambda_D = 0.01;
         double lambda_T = 1;
         STRPDE_NonLinear<SpaceTimeParabolic, fdapde::monolithic> model(pde, Sampling::pointwise);
         model.set_lambda_D(lambda_D);
         model.set_lambda_T(lambda_T);
         model.set_spatial_locations(locs);
         // set model's data
-        std::string filename = "../data/models/strpde_nonlinear/test1_5/y" + std::to_string(i) + ".csv";
+        std::string filename = "../data/models/strpde_nonlinear/test1_10/y" + std::to_string(i) + ".csv";
         DMatrix<double> y = read_csv<double>(filename);
         BlockFrame<double, int> df;
         df.stack(OBSERVATIONS_BLK, y);
@@ -748,7 +752,8 @@ TEST(strpde_nonlninear_test, laplacian_nonparametric_samplingatnodes_parabolic_m
         {
             MSE_grid += (sol_grid(i) - f_grid(i))*(sol_grid(i) - f_grid(i)) / (n);
         }
-        file << "\"" << i+60 << "\" " << 1000 << " \"method3\" " << time << " " << MSE_grid << "\n";
+        // file << "\"" << i+60 << "\" " << 1000 << " \"method3\" " << time << " " << MSE_grid << "\n";
+        file << model.f();
         // std::cout << "MSE_grid = " << MSE_grid << std::endl;
         // std::cout << "inf_norm error in sgrid points = " << (f_grid - sol_grid).lpNorm<Eigen::Infinity>() << std::endl;
 

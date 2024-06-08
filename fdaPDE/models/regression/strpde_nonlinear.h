@@ -137,9 +137,9 @@ class STRPDE_NonLinear<SpaceTimeParabolic, monolithic> :
             // Check convergence to stop early
             auto incr = f_ - f_prev;
             if (incr.norm() < tol_) {
-                b_.resize(A_.rows());
+                /* b_.resize(A_.rows());
                 set_dirichlet_bc(A_, b_);
-                invA_.compute(A_);
+                invA_.compute(A_); */
                 break;
             }
             // std::cout << "incr = " << incr.norm() << std::endl;
@@ -261,8 +261,8 @@ class STRPDE_NonLinear<SpaceTimeParabolic, iterative> :
                 PsiTD_it * Psi_it,   lambda_D() * (R1_step(f_old(t)) + R0_robin_it()).transpose() ,
 	            lambda_D() * (R1_step(f_old(t)) + R0_robin_it()), -lambda_D() * R0_it()           );
         }
-        set_dirichlet_bc(A_, b_, n_temporal_locs()-1);
-        invA_.compute(A_);
+        // set_dirichlet_bc(A_, b_, n_temporal_locs()-1);
+        // invA_.compute(A_);
 
         // compute g^(k,0), k = 1 ... m as solution of the system
         //    G0 = [(\lambda_S*\lambda_T)/DeltaT * R_0 + \lambda_S*R_1^T]
@@ -357,7 +357,7 @@ class STRPDE_NonLinear<SpaceTimeParabolic, iterative> :
         g_ = g_old.get();
 
         // prepare solver matrices 
-        if (is_empty(L_)) L_ = Kronecker(L(), pde().mass());
+        /* if (is_empty(L_)) L_ = Kronecker(L(), pde().mass());
         R1_step_kronecker(f_);  // save the Kronecker stiffness matrix a t convergence
         // save A_ and invA_ at convergence
         A_ = SparseBlockMatrix<double, 2, 2>(
@@ -365,7 +365,7 @@ class STRPDE_NonLinear<SpaceTimeParabolic, iterative> :
             lambda_D() * (R1() + R0_robin() + lambda_T() * L_), lambda_D() * R0());
         b_.resize(A_.rows());
         set_dirichlet_bc(A_, b_);
-        invA_.compute(A_);
+        invA_.compute(A_); */
 
         return;
     }
@@ -459,7 +459,7 @@ class STRPDE_NonLinear<SpaceTimeParabolic, iterative_EI> :
             PsiTD_it * Psi_it,   lambda_D() * (R1_step(s_) + R0_robin_it()).transpose(),
 	        lambda_D() * (R1_step(s_) + R0_robin_it()), -lambda_D() * R0_it()           );
         // cache system matrix and its factorization
-        invA_.compute(A_);
+        // invA_.compute(A_);
         b_.resize(A_.rows());
         auto f_prev = s_;
 
@@ -548,7 +548,7 @@ class STRPDE_NonLinear<SpaceTimeParabolic, iterative_EI> :
                 if (incr_nl.norm() < tolf_) break;
                 f_prev = f_new(0);
             }
-            
+
             // general step
             for (std::size_t t = 1; t < n_temporal_locs() - 1; ++t) {
                 f_prev = f_new(t-1);   
@@ -616,7 +616,7 @@ class STRPDE_NonLinear<SpaceTimeParabolic, iterative_EI> :
         g_ = g_old.get();
 
         // prepare solver matrices 
-        if (is_empty(L_)) L_ = Kronecker(L(), pde().mass());
+        /* if (is_empty(L_)) L_ = Kronecker(L(), pde().mass());
         R1_step_kronecker(f_);  // save the Kronecker stiffness matrix a t convergence
         // save A_ and invA_ at convergence
         A_ = SparseBlockMatrix<double, 2, 2>(
@@ -624,7 +624,7 @@ class STRPDE_NonLinear<SpaceTimeParabolic, iterative_EI> :
             lambda_D() * (R1() + R0_robin() + lambda_T() * L_), lambda_D() * R0());
         b_.resize(A_.rows());
         set_dirichlet_bc(A_, b_);
-        invA_.compute(A_);
+        invA_.compute(A_); */
 
         return;
     }

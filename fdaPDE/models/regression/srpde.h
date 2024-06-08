@@ -64,6 +64,7 @@ class SRPDE : public RegressionBase<SRPDE, SpaceOnly> {
             // std::cout << u_robin() << std::endl;
             // std::cout << "A.rows() = " << A_.rows() << ", n_basis = " << n_basis() << std::endl;
             // auto A_step = pde().stiff_step(DVector<double>::Zero(n_basis()));
+            if (!is_empty(pde_.dirichlet_boundary_data())) matrix_bc_Dirichlet_ = pde_.matrix_bc_Dirichlet();
             return;
         }
         if (runtime().query(runtime_status::require_W_update)) {

@@ -45,20 +45,26 @@ class RMSE {
         model_.set_mask(test_mask);   // discard test set from training phase
         model_.init();
         model_.solve();
+        // std::cout << "model_.Psi().row(1): " << model_.Psi().row(1) << std::endl;
 
         // compute RMSE over all testing observation which are not missing
         BinaryVector<fdapde::Dynamic> rmse_mask = test_mask & ~model_.nan_mask();
+        // std::cout << "rmse mask:" << std::endl;
+        // std::cout << rmse_mask << std::endl;
+        // std::cout << "----------------" << std::endl; 
         // RMSE evaluation
         double rmse = 0;
         std::size_t n = 0;   // cardinality of test set
         for (std::size_t i = 0, sz = rmse_mask.size(); i < sz; ++i) {
             if (rmse_mask[i]) {                                    // not a missing value
                 double hat_y = model_.Psi().row(i) * model_.f();   // non-parametric field evaluation at i-th location
+                // std::cout << "hat_y = " << hat_y << std::endl;
                 if (model_.has_covariates()) { hat_y += model_.X().row(i) * model_.beta(); }
                 rmse += std::pow(model_.y()(i, 0) - hat_y, 2);
                 n++;
             }
         }
+        // std::cout << "N = " << n << std::endl;
         return std::sqrt(rmse / n);   // \sqrt{\frac{norm(y - \hat y)^2/}{n}}
     }
 };
